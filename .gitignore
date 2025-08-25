@@ -16,11 +16,31 @@ build/
 xcuserdata/
 *.xccheckout
 *.moved-aside
-DerivedData
+DerivedData/
 *.hmap
 *.ipa
 *.xcuserstate
 project.xcworkspace
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+.swiftpm/config/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
 
 # Node.js
 node_modules/
@@ -38,6 +58,10 @@ yarn-error.log*
 .firebase/
 firebase-debug.log
 .firebaserc
+
+# API Keys and Config
+Config.plist
+**/Config.plist
 
 # Logs
 logs

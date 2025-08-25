@@ -6,7 +6,9 @@ A modern iOS application built with SwiftUI, Node.js backend, and Firebase integ
 
 ```
 Squirrel2/
-├── Squirrel2iOS/        # iOS app (SwiftUI)
+├── Squirrel2/           # iOS app (SwiftUI)
+│   ├── Squirrel2.xcodeproj
+│   └── Squirrel2/       # App source files
 ├── backend/             # Node.js backend
 ├── firebase.json        # Firebase configuration
 └── firestore.rules      # Firestore security rules
@@ -32,22 +34,21 @@ Squirrel2/
 
 ### iOS Setup
 
-1. Navigate to iOS directory:
+1. Open the Xcode project:
 ```bash
-cd Squirrel2iOS
+cd Squirrel2
+open Squirrel2.xcodeproj
 ```
 
-2. Install CocoaPods dependencies:
-```bash
-pod install
-```
+2. Add Firebase to your iOS app:
+   - In Xcode, go to File → Add Package Dependencies
+   - Add `https://github.com/firebase/firebase-ios-sdk`
+   - Select the Firebase products you need (Auth, Firestore, Storage, etc.)
 
-3. Open in Xcode:
-```bash
-open Squirrel2iOS.xcworkspace
-```
-
-4. Add your `GoogleService-Info.plist` file to the Xcode project
+3. Add your `GoogleService-Info.plist` file:
+   - Download from Firebase Console
+   - Drag into Xcode project navigator
+   - Ensure it's added to the Squirrel2 target
 
 ### Backend Setup
 
@@ -98,8 +99,8 @@ firebase deploy --only firestore:rules,storage:rules
 ## Development
 
 ### iOS Development
-- Open `Squirrel2iOS.xcworkspace` in Xcode
-- Build and run on simulator or device
+- Open `Squirrel2.xcodeproj` in Xcode
+- Build and run on simulator or device (⌘+R)
 
 ### Backend Development
 ```bash

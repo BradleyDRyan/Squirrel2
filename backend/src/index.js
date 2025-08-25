@@ -8,6 +8,14 @@ require('dotenv').config();
 const firebaseAdmin = require('./config/firebase');
 const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
+const phoneAuthRoutes = require('./routes/phone-auth');
+const conversationRoutes = require('./routes/conversations');
+const messageRoutes = require('./routes/messages');
+const taskRoutes = require('./routes/tasks');
+const entryRoutes = require('./routes/entries');
+const thoughtRoutes = require('./routes/thoughts');
+const spaceRoutes = require('./routes/spaces');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,13 +38,28 @@ app.get('/', (req, res) => {
     version: '2.0.0',
     endpoints: {
       auth: '/auth',
-      api: '/api'
+      api: '/api',
+      users: '/users',
+      spaces: '/api/spaces',
+      conversations: '/api/conversations',
+      messages: '/api/messages',
+      tasks: '/api/tasks',
+      entries: '/api/entries',
+      thoughts: '/api/thoughts'
     }
   });
 });
 
 app.use('/auth', authRoutes);
+app.use('/auth/phone', phoneAuthRoutes);
 app.use('/api', apiRoutes);
+app.use('/users', userRoutes);
+app.use('/api/spaces', spaceRoutes);
+app.use('/api/conversations', conversationRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/entries', entryRoutes);
+app.use('/api/thoughts', thoughtRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
