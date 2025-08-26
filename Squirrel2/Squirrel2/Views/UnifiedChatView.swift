@@ -411,7 +411,6 @@ struct VoiceDefaultView: View {
     @StateObject private var voiceAI = VoiceAIManager.shared
     @State private var isRecording = false
     @State private var showError = false
-    @State private var showVoiceIntent = false  // New: Show intent capture first
     @Binding var conversation: ChatConversation?
     @Binding var messages: [ChatMessage]
     let onSwitchToChat: () -> Void
@@ -443,13 +442,28 @@ struct VoiceDefaultView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showVoiceIntent) {
-            VoiceIntentView()
-        }
         .onAppear {
-            // Don't auto-start Realtime anymore
-            // Wait for user to tap mic button which shows intent view
-            print("🎤 Voice mode ready - tap mic to start")
+            Task {
+                do {
+                    print("🚀 Starting voice mode...")
+                    
+                    if !voiceAI.isConnected {
+                        try await voiceAI.startHandlingVoice()
+                        print("✅ Voice handling started")
+                    } else {
+                        print("✅ Already connected to Realtime API")
+                    }
+                    
+                    try await voiceAI.startListening()
+                    isRecording = true
+                    
+                    print("🎙️ Voice mode ready")
+                } catch {
+                    print("❌ Failed to start voice mode: \(error)")
+                    voiceAI.error = error.localizedDescription
+                    isRecording = false
+                }
+            }
         }
         .onDisappear {
             Task {
@@ -663,15 +677,19 @@ struct VoiceDefaultView: View {
     }
     
     private func toggleRecording() {
-        if isRecording {
-            // Stop existing Realtime recording
-            Task {
+        Task {
+            if isRecording {
                 await voiceAI.stopListening()
                 isRecording = false
+            } else {
+                do {
+                    try await voiceAI.startListening()
+                    isRecording = true
+                } catch {
+                    print("Error starting recording: \(error)")
+                    voiceAI.error = error.localizedDescription
+                }
             }
-        } else {
-            // Show intent capture view instead of directly starting Realtime
-            showVoiceIntent = true
         }
     }
 }

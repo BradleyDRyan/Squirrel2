@@ -26,13 +26,9 @@ class VoiceAIManager: ObservableObject {
     
     private var apiKey: String = ""
     private let functionHandler = RealtimeFunctionHandler()
-    private let intentRouter = IntentRouter()
     private var conversationId: String = ""
     private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
     private var observationTasks: [Task<Void, Never>] = [] // Track all observation tasks
-    private var isHandlingSilently = false // Flag to prevent Realtime processing
-    private var hasClassifiedInitialIntent = false // Only classify once at the start
-    private var initialPrompt: String? // Initial question/prompt from intent view
     
     var entries: [Item] {
         conversation?.entries ?? []
@@ -41,12 +37,6 @@ class VoiceAIManager: ObservableObject {
     // Get voice messages as ChatMessages for unified conversation
     func getVoiceMessages() -> [ChatMessage] {
         return voiceMessages
-    }
-    
-    // Set initial prompt from intent classification
-    func setInitialPrompt(_ prompt: String) {
-        self.initialPrompt = prompt
-        print("📝 Initial prompt set: \(prompt)")
     }
     
     private init() {
@@ -88,104 +78,15 @@ class VoiceAIManager: ObservableObject {
         await setupWithExistingKey()
     }
     
-    // Classify initial intent to determine conversation mode
-    private func classifyInitialIntent(_ transcript: String) async {
-        do {
-            // Classify intent using the pre-router
-            let result = try await intentRouter.classifyIntent(transcript)
-            
-            switch result.intent {
-            case .command:
-                // This is a task capture session - configure for silent mode
-                print("🔇 TASK MODE - User wants to capture tasks silently")
-                await configureForTaskMode()
-                
-                // If we already extracted a task from the classification, create it
-                if let task = result.task {
-                    await createTaskSilently(
-                        title: task.title,  
-                        dueDate: task.dueDate,
-                        priority: task.priority
-                    )
-                    print("✅ Initial task created silently")
-                }
-                
-            case .question:
-                // This is a conversation session - allow normal voice responses
-                print("🔊 CONVERSATION MODE - User wants to chat")
-                await configureForConversationMode()
-            }
-        } catch {
-            print("❌ Intent classification failed: \(error)")
-            // On error, default to conversation mode
-            await configureForConversationMode()
+    // Update instructions based on intent classification
+    private func updateInstructionsForIntent(_ classification: IntentClassifier.Classification) async {
+        // Just log the classification for now
+        // The AI will use its own pattern matching based on the instructions
+        if classification.shouldSpeak {
+            print("🔊 User intent suggests voice response needed")
+        } else {
+            print("🔇 User intent suggests silent execution")
         }
-    }
-    
-    // Configure session for task capture (silent mode)
-    private func configureForTaskMode() async {
-        guard let conversation = conversation else { return }
-        
-        do {
-            try await conversation.updateSession { session in
-                session.instructions = """
-                You are in TASK CAPTURE MODE.
-                - Execute tools silently
-                - Do NOT generate any audio responses
-                - Just capture tasks and reminders
-                - Stay completely silent
-                """
-                print("📝 Configured for silent task capture")
-            }
-        } catch {
-            print("❌ Failed to configure task mode: \(error)")
-        }
-    }
-    
-    // Configure session for conversation (normal mode)  
-    private func configureForConversationMode() async {
-        guard let conversation = conversation else { return }
-        
-        do {
-            try await conversation.updateSession { session in
-                session.instructions = """
-                You are in CONVERSATION MODE.
-                - Answer questions naturally
-                - Be helpful and conversational
-                - Use voice responses as appropriate
-                - Execute tools when needed
-                """
-                print("💬 Configured for conversation mode")
-            }
-        } catch {
-            print("❌ Failed to configure conversation mode: \(error)")
-        }
-    }
-    
-    // Create task without voice feedback
-    private func createTaskSilently(title: String, dueDate: String?, priority: String?) async {
-        // Get user ID
-        guard let user = FirebaseManager.shared.currentUser else {
-            print("❌ No user for silent task creation")
-            return
-        }
-        
-        // Call the function handler directly
-        let args: [String: Any] = [
-            "title": title,
-            "dueDate": dueDate ?? "",
-            "priority": priority ?? "medium"
-        ]
-        
-        let argsJSON = try? JSONSerialization.data(withJSONObject: args)
-        let argsString = argsJSON.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        
-        _ = await functionHandler.handleFunctionCall(
-            name: "create_task",
-            arguments: argsString
-        )
-        
-        print("📝 Task created silently: \(title)")
     }
     
     // Public method to ensure initialization is complete
@@ -211,7 +112,6 @@ class VoiceAIManager: ObservableObject {
         if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
             apiKey = key
             print("✅ Using API key from FirebaseManager")
-            intentRouter.initialize(apiKey: key)
             setupConversation()
         } else {
             // Key should be available, but wait briefly in case of race condition
@@ -222,7 +122,6 @@ class VoiceAIManager: ObservableObject {
                 if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
                     apiKey = key
                     print("✅ API key now available")
-                    intentRouter.initialize(apiKey: key)
                     setupConversation()
                     break
                 }
@@ -468,19 +367,25 @@ class VoiceAIManager: ObservableObject {
                 if let lastUserMessage = messages.last(where: { $0.role == .user }) {
                     currentTranscript = lastUserMessage.content.compactMap { content in
                         switch content {
+                        case .input_text(let text):
+                            return text
+                        case .text(let text):
+                            return text
                         case .input_audio(let audio):
-                            // Only process actual voice input from user
                             return audio.transcript
                         default:
                             return nil
                         }
                     }.joined(separator: " ")
                     
-                    // ONLY classify the very first user utterance to determine mode
-                    if !currentTranscript.isEmpty && !hasClassifiedInitialIntent {
-                        hasClassifiedInitialIntent = true
+                    // Classify the user's intent
+                    if !currentTranscript.isEmpty {
+                        let classification = IntentClassifier.classifyIntent(currentTranscript)
+                        print("🎯 Intent: \(classification.intent) (confidence: \(classification.confidence))")
+                        
+                        // Update session instructions based on classification
                         Task {
-                            await classifyInitialIntent(currentTranscript)
+                            await updateInstructionsForIntent(classification)
                         }
                     }
                 }
@@ -648,9 +553,6 @@ class VoiceAIManager: ObservableObject {
     }
     
     func startListening() async throws {
-        // Reset classification flag for new session
-        hasClassifiedInitialIntent = false
-        
         // Ensure conversation is initialized
         if conversation == nil {
             print("⏳ Conversation not ready, waiting...")
@@ -672,21 +574,6 @@ class VoiceAIManager: ObservableObject {
         do {
             try conversation.startListening()
             error = nil
-            
-            // If we have an initial prompt from intent classification, send it
-            if let prompt = initialPrompt {
-                print("📤 Sending initial prompt: \(prompt)")
-                Task {
-                    // Brief delay to ensure connection is ready
-                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                    
-                    // Send the prompt as text input
-                    await conversation.sendText(prompt)
-                    
-                    // Clear the prompt so it's not sent again
-                    self.initialPrompt = nil
-                }
-            }
         } catch {
             self.error = "Failed to start listening: \(error.localizedDescription)"
             throw error
