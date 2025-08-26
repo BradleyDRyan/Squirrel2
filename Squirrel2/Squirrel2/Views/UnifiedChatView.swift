@@ -1,15 +1,15 @@
 //
-//  ChatView.swift
+//  UnifiedChatView.swift
 //  Squirrel2
 //
-//  Main chat view
+//  Unified chat view with voice as default
 //
 
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-struct ChatView: View {
+struct UnifiedChatView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var firebaseManager: FirebaseManager
     @StateObject private var aiManager = ChatAIManager()
@@ -17,9 +17,9 @@ struct ChatView: View {
     @State private var messageText = ""
     @State private var isLoading = false
     @State private var conversation: ChatConversation?
-    @State private var showingChatMode = false
     @State private var streamingMessageId: String?
     @State private var streamingMessageContent = ""
+    @State private var showingChatMode = false
     @FocusState private var isInputFocused: Bool
     
     private let db = Firestore.firestore()
@@ -79,7 +79,7 @@ struct ChatView: View {
         .onAppear {
             setupConversation()
             
-            // Initialize VoiceAIManager for this conversation with chat history
+            // Initialize VoiceAIManager for this conversation
             Task {
                 let convId = conversation?.id ?? UUID().uuidString
                 await VoiceAIManager.shared.initialize(withChatHistory: messages, conversationId: convId)
@@ -87,7 +87,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
-            // Clean up VoiceAIManager when leaving chat
+            // Clean up VoiceAIManager when leaving
             Task {
                 await VoiceAIManager.shared.disconnect()
                 print("✅ VoiceAIManager disconnected")
@@ -185,7 +185,6 @@ struct ChatView: View {
         guard let user = firebaseManager.currentUser else { return }
         
         do {
-            // Get proper Firebase auth token
             let token = try await user.getIDToken()
             
             let messageData: [String: Any] = [
@@ -224,53 +223,27 @@ struct ChatView: View {
     }
     
     private func setupConversation() {
-        guard let user = firebaseManager.currentUser else { return }
+        guard let userId = firebaseManager.currentUser?.uid else { return }
         
-        Task {
-            do {
-                // Get Firebase auth token
-                let token = try await user.getIDToken()
-                
-                // Create conversation via backend API
-                let conversationData: [String: Any] = [
-                    "title": "New Chat"
-                ]
-                
-                guard let url = URL(string: "\(AppConfig.apiBaseURL)/conversations") else { return }
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                
-                let jsonData = try JSONSerialization.data(withJSONObject: conversationData)
-                request.httpBody = jsonData
-                
-                let (data, response) = try await URLSession.shared.data(for: request)
-                
-                if let httpResponse = response as? HTTPURLResponse,
-                   httpResponse.statusCode == 201 {
-                    
-                    if let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let id = responseDict["id"] as? String {
-                        
-                        let newConversation = ChatConversation(
-                            id: id,
-                            title: responseDict["title"] as? String ?? "New Chat",
-                            userId: user.uid
-                        )
-                        
-                        await MainActor.run {
-                            self.conversation = newConversation
-                            self.loadMessages()
-                        }
-                        
-                        print("✅ Created conversation via backend: \(id)")
-                    }
-                } else {
-                    print("Error creating conversation: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-                }
-            } catch {
+        let newConversation = ChatConversation(
+            title: "New Chat",
+            userId: userId
+        )
+        
+        let conversationData: [String: Any] = [
+            "id": newConversation.id,
+            "title": newConversation.title,
+            "userId": newConversation.userId,
+            "createdAt": Timestamp(date: newConversation.createdAt),
+            "lastMessageAt": Timestamp(date: newConversation.lastMessageAt)
+        ]
+        
+        db.collection("conversations").document(newConversation.id).setData(conversationData) { error in
+            if let error = error {
                 print("Error creating conversation: \(error)")
+            } else {
+                self.conversation = newConversation
+                loadMessages()
             }
         }
     }
@@ -300,6 +273,11 @@ struct ChatView: View {
                         conversationId: conversationId
                     )
                 }
+                
+                // Update voice AI with latest messages
+                Task {
+                    await VoiceAIManager.shared.updateChatHistory(self.messages)
+                }
             }
     }
     
@@ -308,7 +286,6 @@ struct ChatView: View {
         guard !content.isEmpty,
               let conversationId = conversation?.id else { return }
         
-        // Create user message
         let userMessage = ChatMessage(
             content: content,
             isFromUser: true,
@@ -316,20 +293,15 @@ struct ChatView: View {
             source: .text
         )
         
-        // Clear input
         messageText = ""
         isInputFocused = false
         
-        // Save user message via backend API
         Task {
             guard let conversation = self.conversation else { return }
             await saveMessage(userMessage, to: conversation)
-            
-            // Simulate AI response after message is saved
             self.simulateAIResponse(for: content, conversationId: conversationId)
         }
         
-        // Update conversation's last message timestamp
         db.collection("conversations")
             .document(conversationId)
             .updateData(["lastMessageAt": Timestamp(date: Date())])
@@ -340,34 +312,27 @@ struct ChatView: View {
         
         Task {
             do {
-                // Create AI response message placeholder
                 let aiResponse = ChatMessage(
                     content: "",
                     isFromUser: false,
                     conversationId: conversationId
                 )
                 
-                // Set up streaming
                 streamingMessageId = aiResponse.id
                 streamingMessageContent = ""
                 
-                // Add placeholder to messages for immediate UI feedback
                 await MainActor.run {
                     self.messages.append(aiResponse)
                 }
                 
-                // Stream AI response
                 try await aiManager.streamMessageWithHistory(
                     userMessage,
-                    history: messages.dropLast() // Don't include the placeholder in history
+                    history: messages.dropLast()
                 ) { chunk in
-                    // Update streaming content
                     self.streamingMessageContent += chunk
                 }
                 
-                // Save complete message to Firestore
                 let finalContent = streamingMessageContent
-                // Create response data with explicit types to avoid Sendable warning
                 let responseTimestamp = Timestamp(date: aiResponse.timestamp)
                 let responseId = aiResponse.id
                 let responseIsFromUser = aiResponse.isFromUser
@@ -385,14 +350,12 @@ struct ChatView: View {
                     .document(responseId)
                     .setData(messageData)
                 
-                // Update conversation's last message timestamp
                 let updateData: [String: Any] = ["lastMessageAt": Timestamp(date: Date())]
                 try await db.collection("conversations")
                     .document(conversationId)
                     .updateData(updateData)
                 
                 await MainActor.run {
-                    // Update the message in the array with final content
                     if let index = self.messages.firstIndex(where: { $0.id == aiResponse.id }) {
                         self.messages[index] = ChatMessage(
                             id: aiResponse.id,
@@ -411,7 +374,6 @@ struct ChatView: View {
             } catch {
                 print("Error getting AI response: \(error)")
                 await MainActor.run {
-                    // Remove placeholder message if exists
                     if let streamId = self.streamingMessageId {
                         self.messages.removeAll { $0.id == streamId }
                     }
@@ -420,7 +382,6 @@ struct ChatView: View {
                     self.streamingMessageContent = ""
                     self.isLoading = false
                     
-                    // Show error message to user
                     let errorMessage = ChatMessage(
                         content: "Sorry, I couldn't process your message. Error: \(error.localizedDescription)",
                         isFromUser: false,
@@ -445,7 +406,295 @@ struct ChatView: View {
     }
 }
 
+// Voice mode as default view
+struct VoiceDefaultView: View {
+    @StateObject private var voiceAI = VoiceAIManager.shared
+    @State private var isRecording = false
+    @State private var showError = false
+    @Binding var conversation: ChatConversation?
+    @Binding var messages: [ChatMessage]
+    let onSwitchToChat: () -> Void
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        ZStack {
+            backgroundGradient
+            
+            if voiceAI.isLoadingKey {
+                loadingView
+            } else {
+                mainContent
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(voiceAI.error ?? "An unknown error occurred")
+        }
+        .onChange(of: voiceAI.error) { _, newError in
+            showError = newError != nil
+        }
+        .onChange(of: voiceAI.shouldDismiss) { _, shouldDismiss in
+            if shouldDismiss {
+                Task {
+                    await voiceAI.closeVoiceMode()
+                    onDismiss()
+                }
+            }
+        }
+        .onAppear {
+            Task {
+                do {
+                    print("🚀 Starting voice mode...")
+                    
+                    if !voiceAI.isConnected {
+                        try await voiceAI.startHandlingVoice()
+                        print("✅ Voice handling started")
+                    } else {
+                        print("✅ Already connected to Realtime API")
+                    }
+                    
+                    try await voiceAI.startListening()
+                    isRecording = true
+                    
+                    print("🎙️ Voice mode ready")
+                } catch {
+                    print("❌ Failed to start voice mode: \(error)")
+                    voiceAI.error = error.localizedDescription
+                    isRecording = false
+                }
+            }
+        }
+        .onDisappear {
+            Task {
+                // Merge voice messages back into chat
+                let voiceMessages = VoiceAIManager.shared.getVoiceMessages()
+                if !voiceMessages.isEmpty {
+                    messages.append(contentsOf: voiceMessages)
+                    print("✅ Merged \(voiceMessages.count) voice messages into chat")
+                }
+            }
+        }
+    }
+    
+    private var backgroundGradient: some View {
+        LinearGradient(
+            colors: [Color.squirrelWarmBackground, Color.squirrelWarmGrayBackground],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+    
+    private var loadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .scaleEffect(1.5)
+            Text("Setting up voice AI...")
+                .font(.squirrelHeadline)
+                .foregroundColor(.squirrelTextSecondary)
+        }
+    }
+    
+    private var mainContent: some View {
+        VStack(spacing: 20) {
+            // Header
+            HStack {
+                Button("Cancel") {
+                    Task {
+                        await voiceAI.closeVoiceMode()
+                        onDismiss()
+                    }
+                }
+                .foregroundColor(.squirrelTextSecondary)
+                
+                Spacer()
+                
+                Text("Voice Mode")
+                    .font(.squirrelHeadline)
+                    .foregroundColor(.squirrelTextPrimary)
+                
+                Spacer()
+                
+                Circle()
+                    .fill(voiceAI.isConnected ? Color.green : Color.red)
+                    .frame(width: 10, height: 10)
+            }
+            .padding(.horizontal)
+            .padding(.top)
+            
+            Spacer()
+            
+            // Current transcript display
+            VStack(spacing: 20) {
+                if voiceAI.isListening {
+                    HStack(spacing: 12) {
+                        Image(systemName: "mic.fill")
+                            .foregroundColor(.red)
+                            .font(.title3)
+                            .symbolEffect(.pulse)
+                        Text("Listening...")
+                            .font(.squirrelHeadline)
+                            .foregroundColor(.squirrelTextPrimary)
+                    }
+                } else if voiceAI.isConnected {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.title3)
+                        Text("Ready")
+                            .font(.squirrelHeadline)
+                            .foregroundColor(.squirrelTextPrimary)
+                    }
+                }
+                
+                if !voiceAI.currentTranscript.isEmpty {
+                    Text(voiceAI.currentTranscript)
+                        .font(.squirrelBody)
+                        .foregroundColor(.squirrelTextSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                
+                if let lastAssistantMessage = voiceAI.messages.last(where: { $0.role == .assistant }) {
+                    let content = lastAssistantMessage.content.compactMap { content in
+                        switch content {
+                        case .text(let text):
+                            return text
+                        case .audio(let audio):
+                            return audio.transcript
+                        default:
+                            return nil
+                        }
+                    }.joined(separator: " ")
+                    
+                    if !content.isEmpty {
+                        Text(content)
+                            .font(.squirrelBody)
+                            .foregroundColor(.squirrelTextPrimary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                            .padding(.vertical, 16)
+                            .background(Color.squirrelSurfaceBackground)
+                            .cornerRadius(16)
+                    }
+                }
+            }
+            .padding()
+            .frame(maxHeight: 300)
+            
+            // Voice visualization
+            if isRecording {
+                VoiceWaveformView()
+                    .frame(height: 60)
+                    .padding(.horizontal)
+            }
+            
+            // Main recording button
+            Button(action: toggleRecording) {
+                ZStack {
+                    if isRecording {
+                        Circle()
+                            .stroke(Color.red.opacity(0.3), lineWidth: 2)
+                            .frame(width: 140, height: 140)
+                            .scaleEffect(isRecording ? 1.2 : 1.0)
+                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isRecording)
+                        
+                        Circle()
+                            .stroke(Color.red.opacity(0.2), lineWidth: 2)
+                            .frame(width: 160, height: 160)
+                            .scaleEffect(isRecording ? 1.3 : 1.0)
+                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isRecording)
+                    }
+                    
+                    Circle()
+                        .fill(isRecording ? Color.red : Color.squirrelPrimary)
+                        .frame(width: 120, height: 120)
+                        .overlay(
+                            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.white)
+                        )
+                        .scaleEffect(isRecording ? 1.1 : 1.0)
+                        .animation(.easeInOut(duration: 0.2), value: isRecording)
+                }
+            }
+            .disabled(!voiceAI.isConnected && !isRecording)
+            
+            Text(statusText)
+                .font(.squirrelCallout)
+                .foregroundColor(.squirrelTextSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            if voiceAI.messages.last?.role == .assistant {
+                Button(action: {
+                    Task {
+                        await voiceAI.interrupt()
+                    }
+                }) {
+                    Text("Interrupt")
+                        .font(.squirrelButtonSecondary)
+                        .foregroundColor(.squirrelSecondary)
+                }
+            }
+            
+            Spacer()
+            
+            // Switch to Chat Mode button at the bottom
+            Button(action: {
+                onSwitchToChat()
+            }) {
+                HStack {
+                    Image(systemName: "text.bubble.fill")
+                        .font(.system(size: 18))
+                    Text("Switch to Chat")
+                        .font(.squirrelButtonSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.squirrelSurfaceBackground)
+                .foregroundColor(.squirrelTextPrimary)
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.squirrelPrimary.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        }
+    }
+    
+    private var statusText: String {
+        if !voiceAI.isConnected {
+            return "Connecting..."
+        } else if isRecording {
+            return "Listening... Tap to stop"
+        } else {
+            return "Tap to start speaking"
+        }
+    }
+    
+    private func toggleRecording() {
+        Task {
+            if isRecording {
+                await voiceAI.stopListening()
+                isRecording = false
+            } else {
+                do {
+                    try await voiceAI.startListening()
+                    isRecording = true
+                } catch {
+                    print("Error starting recording: \(error)")
+                    voiceAI.error = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
 #Preview {
-    ChatView()
+    UnifiedChatView()
         .environmentObject(FirebaseManager.shared)
 }

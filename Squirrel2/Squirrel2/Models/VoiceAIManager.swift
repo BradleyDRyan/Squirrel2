@@ -78,6 +78,17 @@ class VoiceAIManager: ObservableObject {
         await setupWithExistingKey()
     }
     
+    // Update instructions based on intent classification
+    private func updateInstructionsForIntent(_ classification: IntentClassifier.Classification) async {
+        // Just log the classification for now
+        // The AI will use its own pattern matching based on the instructions
+        if classification.shouldSpeak {
+            print("🔊 User intent suggests voice response needed")
+        } else {
+            print("🔇 User intent suggests silent execution")
+        }
+    }
+    
     // Public method to ensure initialization is complete
     func ensureInitialized() async {
         if conversation == nil {
@@ -151,12 +162,19 @@ class VoiceAIManager: ObservableObject {
                 try await conversation.updateSession { @MainActor session in
                     // Build conversation context from chat history
                     var contextInstructions = """
-                    RULE #1: On user input, directly call a tool. Do not generate any chat or audio output—just function call JSON.
-                    RULE #2: ALWAYS respond in ENGLISH, regardless of the language used by the user.
+                    YOU ARE AN INTELLIGENT ASSISTANT with TWO MODES:
                     
-                    You are a helpful assistant that can create and manage tasks for the user.
-                    When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
-                    Always respond in English.
+                    MODE 1 - SILENT EXECUTION (for commands/tasks):
+                    - Execute tools silently
+                    - No verbal confirmations
+                    - Just complete the action
+                    
+                    MODE 2 - CONVERSATIONAL (for questions):
+                    - Answer questions naturally
+                    - Provide helpful information
+                    - Be conversational and friendly
+                    
+                    The system will tell you which mode to use based on user input classification.
                     """
                     
                     if !self.chatHistory.isEmpty {
@@ -169,30 +187,33 @@ class VoiceAIManager: ObservableObject {
                     } else {
                         contextInstructions += """
                         
-                        YOU ARE A SILENT ASSISTANT. 
+                        SMART RESPONSE SYSTEM:
                         
-                        DEFAULT BEHAVIOR:
-                        - On user input, directly call a tool
-                        - Do not generate any chat or audio output
-                        - Just function call JSON
-                        - No confirmations, no "got it", no "done"
+                        FOR COMMANDS (remind me, create task, add to list, etc):
+                        - Execute tool SILENTLY
+                        - NO audio response
+                        - NO confirmations
                         
-                        ONLY generate audio when:
-                        - User asks a direct question requiring information (not a command)
-                        - There's an error preventing tool execution
-                        - User explicitly asks "what did you do?" or similar
+                        FOR QUESTIONS (what, when, how, did that work, etc):
+                        - Generate helpful audio response
+                        - Be conversational
                         
-                        Examples:
-                        User: "Remind me to walk the dog" → TOOL CALL ONLY, NO AUDIO
-                        User: "What time is it?" → AUDIO RESPONSE (if no tool available)
-                        User: "Create a task for groceries" → TOOL CALL ONLY, NO AUDIO
+                        Pattern matching:
+                        - "Remind me..." → SILENT tool execution
+                        - "Create a task..." → SILENT tool execution  
+                        - "Add ... to my list" → SILENT tool execution
+                        - "What's on my list?" → AUDIO response with info
+                        - "Did that work?" → AUDIO confirmation
+                        - Anything with "?" → Usually needs AUDIO response
+                        
+                        DEFAULT: If it's a command, stay SILENT. If it's a question, SPEAK.
                         """
                     }
                     
                     session.instructions = contextInstructions
                     
-                    // Set voice
-                    session.voice = .alloy
+                    // Set voice - shimmer is smoother and more natural
+                    session.voice = .shimmer
                     
                     // Enable input audio transcription
                     session.inputAudioTranscription = Session.InputAudioTranscription()
@@ -350,10 +371,23 @@ class VoiceAIManager: ObservableObject {
                             return text
                         case .text(let text):
                             return text
+                        case .input_audio(let audio):
+                            return audio.transcript
                         default:
                             return nil
                         }
                     }.joined(separator: " ")
+                    
+                    // Classify the user's intent
+                    if !currentTranscript.isEmpty {
+                        let classification = IntentClassifier.classifyIntent(currentTranscript)
+                        print("🎯 Intent: \(classification.intent) (confidence: \(classification.confidence))")
+                        
+                        // Update session instructions based on classification
+                        Task {
+                            await updateInstructionsForIntent(classification)
+                        }
+                    }
                 }
                 
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -455,23 +489,9 @@ class VoiceAIManager: ObservableObject {
                             await sendFunctionResult(callId: functionCall.id, result: result)
                             lastFunctionCall = "\(functionCall.name): \(result)"
                             
-                            // For one-shot commands, check if this is a silent tool execution
-                            // If we have a function call but no AI voice response, it's a one-shot
-                            Task {
-                                // Wait a bit to see if AI responds
-                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                                
-                                // Check if this was a silent execution (no assistant message after function)
-                                let assistantMessages = self.messages.filter { $0.role == .assistant }
-                                if assistantMessages.isEmpty {
-                                    print("🔇 Silent tool execution detected - one-shot command completed")
-                                    // Ensure user transcript is captured before dismissing
-                                    if !self.currentTranscript.isEmpty {
-                                        print("📝 Ensuring user transcript is saved: '\(self.currentTranscript)'")
-                                    }
-                                    self.shouldDismiss = true
-                                }
-                            }
+                            // Don't auto-close after function execution
+                            // User might want to add more tasks/reminders
+                            print("✅ Function executed successfully, voice mode remains open")
                         }
                         
                     case .processed:

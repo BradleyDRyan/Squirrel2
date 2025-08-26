@@ -25,6 +25,11 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
     
+    // Top-level messages collection
+    match /messages/{messageId} {
+      allow read, write: if isAuthenticated();
+    }
+    
     // Spaces
     match /spaces/{spaceId} {
       allow read: if isAuthenticated();

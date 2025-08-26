@@ -28,12 +28,51 @@ struct UserTask: Identifiable, Codable {
         case medium = "medium"
         case high = "high"
         case urgent = "urgent"
+        
+        var sortOrder: Int {
+            switch self {
+            case .urgent: return 0
+            case .high: return 1
+            case .medium: return 2
+            case .low: return 3
+            }
+        }
     }
     
     enum CodingKeys: String, CodingKey {
         case id, userId, spaceIds, conversationId, title, description
         case status, priority, dueDate, completedAt, tags
         case createdAt, updatedAt, metadata
+    }
+    
+    init(id: String,
+         userId: String,
+         spaceIds: [String],
+         conversationId: String?,
+         title: String,
+         description: String,
+         status: TaskStatus,
+         priority: TaskPriority,
+         dueDate: Date?,
+         completedAt: Date?,
+         tags: [String],
+         createdAt: Date,
+         updatedAt: Date,
+         metadata: [String: String]?) {
+        self.id = id
+        self.userId = userId
+        self.spaceIds = spaceIds
+        self.conversationId = conversationId
+        self.title = title
+        self.description = description
+        self.status = status
+        self.priority = priority
+        self.dueDate = dueDate
+        self.completedAt = completedAt
+        self.tags = tags
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.metadata = metadata
     }
     
     init(from decoder: Decoder) throws {
@@ -51,6 +90,7 @@ struct UserTask: Identifiable, Codable {
         tags = try container.decode([String].self, forKey: .tags)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
     }
     
     func encode(to encoder: Encoder) throws {

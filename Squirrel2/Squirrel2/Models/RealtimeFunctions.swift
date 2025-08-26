@@ -308,9 +308,14 @@ class RealtimeFunctionHandler: ObservableObject {
             print("🔧 Fixed truncated JSON: \(fixedArguments)")
         }
         
-        // Parse the arguments JSON
-        guard let argumentsData = fixedArguments.data(using: .utf8),
-              let args = try? JSONSerialization.jsonObject(with: argumentsData) as? [String: Any] else {
+        // Parse the arguments JSON (handle empty arguments for play_chime)
+        let args: [String: Any]
+        if fixedArguments.isEmpty || fixedArguments == "{}" || name == "play_chime" {
+            args = [:]
+        } else if let argumentsData = fixedArguments.data(using: .utf8),
+                  let parsedArgs = try? JSONSerialization.jsonObject(with: argumentsData) as? [String: Any] {
+            args = parsedArgs
+        } else {
             // If JSON parsing fails, try to extract the value manually
             if name == "create_task" {
                 // Try to extract task description from partial JSON

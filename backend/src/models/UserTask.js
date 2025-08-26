@@ -71,7 +71,7 @@ class UserTask {
     }
     
     const snapshot = await query.orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map(doc => new Task({ id: doc.id, ...doc.data() }));
+    return snapshot.docs.map(doc => new UserTask({ id: doc.id, ...doc.data() }));
   }
 
   static async findPending(userId) {
