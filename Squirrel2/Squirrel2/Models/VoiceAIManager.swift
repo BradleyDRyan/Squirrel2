@@ -558,8 +558,19 @@ class VoiceAIManager: ObservableObject {
         conversation.interruptSpeech()
     }
     
+    func closeVoiceMode() async {
+        // Just stop listening/handling but keep conversation alive for reuse
+        guard let conversation = self.conversation else { return }
+        conversation.stopListening()
+        conversation.stopHandlingVoice()
+        isListening = false
+        isConnected = false
+        // Don't clear conversation or set isInitialized to false
+        // This allows reopening voice mode in the same chat session
+    }
+    
     func disconnect() async {
-        // Stop listening and handling voice
+        // Complete teardown - only called when leaving ChatView entirely
         guard let conversation = self.conversation else { return }
         conversation.stopListening()
         conversation.stopHandlingVoice()
@@ -569,6 +580,7 @@ class VoiceAIManager: ObservableObject {
         // Clear the conversation for next use
         self.conversation = nil
         messages.removeAll()
+        voiceMessages.removeAll()
         currentTranscript = ""
         error = nil
     }

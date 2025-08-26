@@ -36,7 +36,7 @@ struct RealtimeVoiceModeView: View {
             if shouldDismiss {
                 // Auto-dismiss after simple command
                 Task {
-                    await voiceAI.disconnect()
+                    await voiceAI.closeVoiceMode()
                     dismiss()
                 }
             }
@@ -70,7 +70,7 @@ struct RealtimeVoiceModeView: View {
         }
         .onDisappear {
             Task {
-                await voiceAI.disconnect()
+                await voiceAI.closeVoiceMode()
             }
         }
     }
@@ -100,7 +100,7 @@ struct RealtimeVoiceModeView: View {
                     HStack {
                     Button("Cancel") {
                         Task {
-                            await voiceAI.disconnect()
+                            await voiceAI.closeVoiceMode()
                             dismiss()
                         }
                     }
