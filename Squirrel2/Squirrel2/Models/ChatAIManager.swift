@@ -74,7 +74,7 @@ class ChatAIManager: ObservableObject {
                         case "done":
                             return
                         case "error":
-                            if let error = json["error"] as? String {
+                            if json["error"] != nil {
                                 throw ChatAIError.requestFailed(statusCode: 500)
                             }
                         default:

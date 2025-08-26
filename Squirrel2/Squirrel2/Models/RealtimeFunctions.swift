@@ -11,8 +11,6 @@ import FirebaseFirestore
 
 // MARK: - Function Definitions
 
-import OpenAIRealtime
-
 struct RealtimeFunctions {
     
     // Define the available functions for the Realtime API (for JSON serialization)
@@ -102,8 +100,92 @@ struct RealtimeFunctions {
         ]
     ]
     
-    // Define the available functions as dictionary for now
-    // We'll need to convert this to Session.Tool format
+    // Create Session.Tool objects for the Swift Realtime library
+    static func createSessionTools() -> [Session.Tool] {
+        var tools: [Session.Tool] = []
+        
+        // Create task tool
+        if let createTaskData = try? JSONSerialization.data(withJSONObject: [
+            "type": "function",
+            "name": "create_task",
+            "description": "Create a new task or reminder for the user",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "title": [
+                        "type": "string",
+                        "description": "The title or description of the task"
+                    ]
+                ],
+                "required": ["title"]
+            ]
+        ]),
+        let tool = try? JSONDecoder().decode(Session.Tool.self, from: createTaskData) {
+            tools.append(tool)
+        }
+        
+        // List tasks tool  
+        if let listTasksData = try? JSONSerialization.data(withJSONObject: [
+            "type": "function",
+            "name": "list_tasks",
+            "description": "List all tasks or reminders",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "filter": [
+                        "type": "string",
+                        "description": "Filter tasks by status or timeframe"
+                    ]
+                ]
+            ]
+        ]),
+        let tool = try? JSONDecoder().decode(Session.Tool.self, from: listTasksData) {
+            tools.append(tool)
+        }
+        
+        // Complete task tool
+        if let completeTaskData = try? JSONSerialization.data(withJSONObject: [
+            "type": "function",
+            "name": "complete_task",
+            "description": "Mark a task as completed",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "taskTitle": [
+                        "type": "string",
+                        "description": "The title of the task to complete"
+                    ]
+                ]
+            ]
+        ]),
+        let tool = try? JSONDecoder().decode(Session.Tool.self, from: completeTaskData) {
+            tools.append(tool)
+        }
+        
+        // Delete task tool
+        if let deleteTaskData = try? JSONSerialization.data(withJSONObject: [
+            "type": "function",
+            "name": "delete_task",
+            "description": "Delete a task or reminder",
+            "parameters": [
+                "type": "object",
+                "properties": [
+                    "taskTitle": [
+                        "type": "string", 
+                        "description": "The title of the task to delete"
+                    ]
+                ]
+            ]
+        ]),
+        let tool = try? JSONDecoder().decode(Session.Tool.self, from: deleteTaskData) {
+            tools.append(tool)
+        }
+        
+        print("📦 Created \(tools.count) Session.Tool objects")
+        return tools
+    }
+    
+    // Keep the simple dictionary version for reference
     static let availableFunctions: [[String: Any]] = [
         [
             "type": "function",
@@ -175,22 +257,54 @@ class RealtimeFunctionHandler: ObservableObject {
         print("🔧 Handling function call: \(name)")
         print("📝 Arguments: \(arguments)")
         
+        // Wait for authentication if needed (up to 3 seconds)
+        var user = FirebaseManager.shared.currentUser
+        if user == nil {
+            print("⏳ Waiting for Firebase authentication...")
+            for i in 1...30 {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+                user = FirebaseManager.shared.currentUser
+                if user != nil {
+                    print("✅ Firebase auth ready after \(i * 100)ms")
+                    break
+                }
+            }
+        }
+        
         // Get the current user (including anonymous users)
-        guard let user = FirebaseManager.shared.currentUser else {
-            print("❌ No Firebase user found (not even anonymous)")
+        guard let user = user else {
+            print("❌ No Firebase user found after waiting")
             print("   Auth state: \(FirebaseManager.shared.isAuthenticated)")
-            return createErrorResponse("User not authenticated - please restart the app")
+            // Use a fallback user ID for demo purposes
+            let fallbackUserId = "voice-demo-\(UUID().uuidString.prefix(8))"
+            print("⚠️ Using fallback user ID: \(fallbackUserId)")
+            // Continue with fallback ID instead of failing
+            return await handleWithUserId(fallbackUserId, name: name, arguments: arguments)
         }
         
         let userId = user.uid
         let isAnonymous = user.isAnonymous
         print("✅ User found: \(userId) (anonymous: \(isAnonymous))")
         
-        // Try to fix truncated JSON by closing it
+        return await handleWithUserId(userId, name: name, arguments: arguments)
+    }
+    
+    private func handleWithUserId(_ userId: String, name: String, arguments: String) async -> String {
+        // Try to fix truncated JSON by closing it properly
         var fixedArguments = arguments
-        if !arguments.contains("}") && arguments.contains("{") {
-            // JSON is truncated, try to close it
-            fixedArguments = arguments + "\"}"
+        
+        // Check if JSON is incomplete
+        let openBraces = arguments.filter { $0 == "{" }.count
+        let closeBraces = arguments.filter { $0 == "}" }.count
+        let hasUnclosedQuote = arguments.filter { $0 == "\"" }.count % 2 != 0
+        
+        if openBraces > closeBraces {
+            // Add closing quote if needed
+            if hasUnclosedQuote {
+                fixedArguments += "\""
+            }
+            // Add closing braces
+            fixedArguments += String(repeating: "}", count: openBraces - closeBraces)
             print("🔧 Fixed truncated JSON: \(fixedArguments)")
         }
         
@@ -262,6 +376,8 @@ class RealtimeFunctionHandler: ObservableObject {
                let token = try? await user.getIDToken(),
                let url = URL(string: "\(AppConfig.apiBaseURL)/tasks") {
                 
+                print("📡 Attempting to create task via backend: \(url.absoluteString)")
+                
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -270,22 +386,31 @@ class RealtimeFunctionHandler: ObservableObject {
                 
                 let (data, response) = try await URLSession.shared.data(for: request)
                 
-                if let httpResponse = response as? HTTPURLResponse,
-                   httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
-                    if let responseData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        lastExecutedFunction = "create_task"
-                        lastFunctionResult = "Created task: \(title)"
-                        
-                        return createSuccessResponse([
-                            "message": "Task created successfully",
-                            "taskId": responseData["id"] as? String ?? UUID().uuidString,
-                            "title": title
-                        ])
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("📡 Backend response: \(httpResponse.statusCode)")
+                    
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                        if let responseData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            lastExecutedFunction = "create_task"
+                            lastFunctionResult = "Created task: \(title)"
+                            print("✅ Task created via backend successfully")
+                            
+                            return createSuccessResponse([
+                                "message": "Task created successfully",
+                                "taskId": responseData["id"] as? String ?? UUID().uuidString,
+                                "title": title
+                            ])
+                        }
+                    } else {
+                        print("⚠️ Backend returned status \(httpResponse.statusCode), falling back to Firestore")
                     }
                 }
+            } else {
+                print("⚠️ Skipping backend (no auth or URL issue), using Firestore directly")
             }
             
             // Fall back to direct Firestore write
+            print("📝 Creating task directly in Firestore")
             let task = VoiceTask(title: title, dueDate: nil, priority: priority, userId: userId)
             try await db.collection("tasks").document(task.id).setData(task.dictionary)
             

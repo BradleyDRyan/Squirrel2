@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { chatCompletion, chatCompletionStream, generateEmbedding } = require('../services/openai');
+const { chatCompletion, chatCompletionStream, generateEmbedding, classifyIntent } = require('../services/openai');
 const { verifyToken } = require('../middleware/auth');
 
 // Chat completion endpoint
@@ -93,6 +93,30 @@ router.post('/embedding', verifyToken, async (req, res) => {
     console.error('Embedding error:', error);
     res.status(500).json({ 
       error: error.message || 'Failed to generate embedding' 
+    });
+  }
+});
+
+// Classify intent endpoint
+router.post('/classify', verifyToken, async (req, res) => {
+  try {
+    const { text } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const classification = await classifyIntent(text);
+    res.json({ 
+      success: true,
+      classification,
+      isCommand: classification === 'command'
+    });
+  } catch (error) {
+    console.error('Classification error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to classify intent',
+      classification: 'conversation' // Default to conversation on error
     });
   }
 });

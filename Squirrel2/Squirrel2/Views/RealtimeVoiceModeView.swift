@@ -16,25 +16,62 @@ struct RealtimeVoiceModeView: View {
     
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [Color.squirrelWarmBackground, Color.squirrelWarmGrayBackground],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            backgroundGradient
             
             if voiceAI.isLoadingKey {
-                // Loading state while fetching API key
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                    Text("Setting up voice AI...")
-                        .font(.squirrelHeadline)
-                        .foregroundColor(.squirrelTextSecondary)
-                }
+                loadingView
             } else {
-                VStack(spacing: 30) {
+                mainContent
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(voiceAI.error ?? "An unknown error occurred")
+        }
+        .onChange(of: voiceAI.error) { _, newError in
+            showError = newError != nil
+        }
+        .onAppear {
+            // Auto-start voice handling when view appears
+            Task {
+                do {
+                    try await voiceAI.startHandlingVoice()
+                    try await voiceAI.startListening()
+                    isRecording = true
+                } catch {
+                    print("Failed to start voice mode: \(error)")
+                }
+            }
+        }
+        .onDisappear {
+            Task {
+                await voiceAI.disconnect()
+            }
+        }
+    }
+    
+    private var backgroundGradient: some View {
+        LinearGradient(
+            colors: [Color.squirrelWarmBackground, Color.squirrelWarmGrayBackground],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+    
+    private var loadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .scaleEffect(1.5)
+            Text("Setting up voice AI...")
+                .font(.squirrelHeadline)
+                .foregroundColor(.squirrelTextSecondary)
+        }
+    }
+    
+    private var mainContent: some View {
+        VStack(spacing: 30) {
                     // Header
                     HStack {
                     Button("Cancel") {
@@ -66,10 +103,12 @@ struct RealtimeVoiceModeView: View {
                 // Messages/Transcript Display
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        // Show conversation messages
                         ForEach(voiceAI.messages, id: \.id) { message in
                             MessageBubbleView(message: message)
                         }
                         
+                        // Show current transcript
                         if !voiceAI.currentTranscript.isEmpty && isRecording {
                             HStack {
                                 Image(systemName: "mic.fill")
@@ -150,33 +189,6 @@ struct RealtimeVoiceModeView: View {
                 }
                 
                 Spacer()
-            }
-            }
-        }
-        .alert("Error", isPresented: $showError) {
-            Button("OK") { }
-        } message: {
-            Text(voiceAI.error ?? "An unknown error occurred")
-        }
-        .onChange(of: voiceAI.error) { _, newError in
-            showError = newError != nil
-        }
-        .onAppear {
-            // Auto-start voice handling when view appears
-            Task {
-                do {
-                    try await voiceAI.startHandlingVoice()
-                    try await voiceAI.startListening()
-                    isRecording = true
-                } catch {
-                    print("Failed to start voice mode: \(error)")
-                }
-            }
-        }
-        .onDisappear {
-            Task {
-                await voiceAI.disconnect()
-            }
         }
     }
     

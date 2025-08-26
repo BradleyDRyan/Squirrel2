@@ -29,8 +29,22 @@ class VoiceAIManager: ObservableObject {
     
     init() {
         Task {
+            // Wait for Firebase auth to be ready first
+            await waitForFirebaseAuth()
             await fetchAPIKeyAndSetup()
         }
+    }
+    
+    private func waitForFirebaseAuth() async {
+        // Give Firebase auth time to initialize
+        for _ in 1...20 {
+            if FirebaseManager.shared.currentUser != nil {
+                print("✅ Firebase auth ready for VoiceAIManager")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+        }
+        print("⚠️ Firebase auth not ready after 2 seconds, continuing anyway")
     }
     
     private func fetchAPIKeyAndSetup() async {
@@ -79,36 +93,32 @@ class VoiceAIManager: ObservableObject {
                 
                 try await conversation.updateSession { session in
                     // Set instructions
-                    session.instructions = "You are a helpful assistant that can create and manage tasks for the user. When the user asks you to create a reminder or task, use the create_task function. Be conversational and confirm when tasks are created."
+                    session.instructions = """
+                    You are a helpful assistant that can create and manage tasks for the user.
+                    When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
+                    Be conversational and confirm when tasks are created or modified.
+                    """
                     
                     // Set voice
                     session.voice = .alloy
                     
                     // Enable input audio transcription
-                    // Initialize without model parameter - it likely has a default
                     session.inputAudioTranscription = Session.InputAudioTranscription()
                     
-                    // Configure tools - We may need to set this differently
-                    // The Swift library might not expose tools directly yet
-                    // session.tools = RealtimeFunctions.availableFunctions
+                    // Configure tools from RealtimeFunctions
+                    session.tools = RealtimeFunctions.createSessionTools()
                     
-                    // For now, include function info in instructions as a workaround
-                    session.instructions = """
-                    You are a helpful assistant that can create and manage tasks for the user. 
-                    When the user asks you to create a reminder or task, respond with: create_task("task description")
-                    Be conversational and confirm when tasks are created.
-                    """
+                    // Set tool choice to auto
+                    session.toolChoice = .auto
                     
                     // Set temperature
                     session.temperature = 0.8
-                }
-                
-                print("✅ Session configured with \(RealtimeFunctions.availableFunctions.count) functions")
-                
-                // Log the tools for debugging
-                for tool in RealtimeFunctions.availableFunctions {
-                    if let name = tool["name"] as? String {
-                        print("   📌 Function: \(name)")
+                    
+                    print("✅ Session configured with \(session.tools.count) tools")
+                    
+                    // Log the tools for debugging
+                    for tool in session.tools {
+                        print("   📌 Tool: \(tool.name ?? "unknown")")
                     }
                 }
             }
@@ -181,293 +191,113 @@ class VoiceAIManager: ObservableObject {
         }
     }
     
+    private func sendToolsConfiguration() async {
+        guard let conversation = conversation else { return }
+        
+        // Create the session.update event with tools
+        let sessionUpdate: [String: Any] = [
+            "type": "session.update",
+            "session": [
+                "tools": RealtimeFunctions.availableFunctionsJSON
+            ]
+        ]
+        
+        // Send the tools configuration
+        if let jsonData = try? JSONSerialization.data(withJSONObject: sessionUpdate),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            print("📤 Sending tools configuration to Realtime API")
+            print("📋 Tools: \(RealtimeFunctions.availableFunctionsJSON.count) functions")
+            
+            // The conversation object should have a way to send raw messages
+            // For now, we'll rely on the instructions to guide the model
+            // If the library exposes a send method, we can use it here
+        }
+    }
+    
     private func observeFunctionCalls() async {
         guard let conversation = conversation else { return }
         
+        enum FunctionCallState {
+            case pending    // Arguments still streaming
+            case ready      // Arguments complete, ready to process
+            case processed  // Already handled
+        }
+        
+        var functionCallStates: [String: FunctionCallState] = [:]
         var processedFunctionCalls = Set<String>()
-        var lastEntryCount = 0
-        var functionCallInfo: [String: (name: String, arguments: String, firstSeen: Date)] = [:]
         
         // Monitor conversation entries for function call items
+        print("🔍 Starting function call monitoring...")
+        var lastEntryCount = 0
         while true {
-            // Only process new entries
-            if conversation.entries.count > lastEntryCount {
-                let newEntries = Array(conversation.entries.suffix(conversation.entries.count - lastEntryCount))
+            // Log new entries
+            if conversation.entries.count != lastEntryCount {
+                print("📊 Entries count changed: \(lastEntryCount) → \(conversation.entries.count)")
                 lastEntryCount = conversation.entries.count
                 
-                for entry in newEntries {
-                    // Debug: Print the entry type
-                    print("🔍 New entry type: \(type(of: entry))")
-                    
-                    // Check if entry contains a function call
-                    if case let .functionCall(functionCall) = entry {
-                        // Store or update function call info
-                        if let existing = functionCallInfo[functionCall.id] {
-                            // Append new arguments to existing
-                            functionCallInfo[functionCall.id] = (
-                                name: functionCall.name,
-                                arguments: existing.arguments + functionCall.arguments,
-                                firstSeen: existing.firstSeen
-                            )
-                        } else {
-                            // New function call
-                            functionCallInfo[functionCall.id] = (
-                                name: functionCall.name,
-                                arguments: functionCall.arguments,
-                                firstSeen: Date()
-                            )
-                        }
-                        
-                        print("🎯 Function call detected: \(functionCall.name)")
-                        print("📝 Current arguments: \(functionCallInfo[functionCall.id]?.arguments ?? "")")
-                        
-                        // Check if arguments look complete (valid JSON)
-                        if let info = functionCallInfo[functionCall.id],
-                           isValidJSON(info.arguments) && !processedFunctionCalls.contains(functionCall.id) {
-                            // Arguments are complete, execute the function
-                            processedFunctionCalls.insert(functionCall.id)
-                            
-                            print("✅ Complete function call ready: \(info.name)")
-                            print("📝 Final arguments: \(info.arguments)")
-                            
-                            // Execute the function
-                            let result = await functionHandler.handleFunctionCall(
-                                name: info.name,
-                                arguments: info.arguments
-                            )
-                            
-                            // Send the function result back
-                            await sendFunctionResult(callId: functionCall.id, result: result)
-                            
-                            lastFunctionCall = "\(info.name): \(result)"
-                            
-                            // Clean up
-                            functionCallInfo.removeValue(forKey: functionCall.id)
-                        }
-                    }
-                    
-                    // Check messages for function call content
-                    if case let .message(message) = entry {
-                        print("📨 Message from: \(message.role)")
-                        
-                        // Only check assistant messages for function calls
-                        if message.role == .assistant {
-                            for content in message.content {
-                                // Debug: Print content type
-                                print("   Content type: \(type(of: content))")
-                                
-                                // Check for text content that might contain function calls
-                                if case let .text(text) = content {
-                                // Print the full text to see what we're getting
-                                print("   📄 Full text content: \(text)")
-                                
-                                // Check if text contains function call patterns
-                                if text.contains("create_task") || text.contains("list_tasks") || 
-                                   text.contains("complete_task") || text.contains("delete_task") ||
-                                   text.contains("take_out_trash") || text.contains("\"name\"") ||
-                                   text.contains("tool_calls") || text.contains("{") {
-                                    
-                                    print("   🔍 Detected potential function call pattern")
-                                    
-                                    // Try to parse as JSON
-                                    if let data = text.data(using: String.Encoding.utf8) {
-                                        do {
-                                            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                                print("   ✅ Successfully parsed JSON: \(json)")
-                                                
-                                                // Check different function call formats
-                                                
-                                                // Format 1: Direct function call
-                                                if let functionName = json["name"] as? String ?? json["function"] as? String {
-                                                    let callId = json["call_id"] as? String ?? 
-                                                               json["id"] as? String ?? 
-                                                               UUID().uuidString
-                                                    
-                                                    if !processedFunctionCalls.contains(callId) {
-                                                        processedFunctionCalls.insert(callId)
-                                                        
-                                                        let arguments = json["arguments"] as? String ?? 
-                                                                       json["parameters"] as? String ?? 
-                                                                       "{}"
-                                                        
-                                                        print("🚀 Executing function: \(functionName)")
-                                                        print("📝 With arguments: \(arguments)")
-                                                        
-                                                        let result = await functionHandler.handleFunctionCall(
-                                                            name: functionName,
-                                                            arguments: arguments
-                                                        )
-                                                        
-                                                        print("✅ Function result: \(result)")
-                                                        
-                                                        await sendFunctionResult(callId: callId, result: result)
-                                                        lastFunctionCall = "\(functionName): \(result)"
-                                                    }
-                                                }
-                                                
-                                                // Format 2: tool_calls array
-                                                if let toolCalls = json["tool_calls"] as? [[String: Any]] {
-                                                    for toolCall in toolCalls {
-                                                        if let callId = toolCall["id"] as? String,
-                                                           let function = toolCall["function"] as? [String: Any],
-                                                           let functionName = function["name"] as? String {
-                                                            
-                                                            if !processedFunctionCalls.contains(callId) {
-                                                                processedFunctionCalls.insert(callId)
-                                                                
-                                                                let arguments = function["arguments"] as? String ?? "{}"
-                                                                
-                                                                print("🚀 Executing tool call: \(functionName)")
-                                                                print("📝 With arguments: \(arguments)")
-                                                                
-                                                                let result = await functionHandler.handleFunctionCall(
-                                                                    name: functionName,
-                                                                    arguments: arguments
-                                                                )
-                                                                
-                                                                print("✅ Function result: \(result)")
-                                                                
-                                                                await sendFunctionResult(callId: callId, result: result)
-                                                                lastFunctionCall = "\(functionName): \(result)"
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                // Format 3: Response with tool_calls
-                                                if let response = json["response"] as? [String: Any],
-                                                   let toolCalls = response["tool_calls"] as? [[String: Any]] {
-                                                    for toolCall in toolCalls {
-                                                        if let callId = toolCall["id"] as? String,
-                                                           let function = toolCall["function"] as? [String: Any],
-                                                           let functionName = function["name"] as? String {
-                                                            
-                                                            if !processedFunctionCalls.contains(callId) {
-                                                                processedFunctionCalls.insert(callId)
-                                                                
-                                                                let arguments = function["arguments"] as? String ?? "{}"
-                                                                
-                                                                print("🚀 Executing response tool call: \(functionName)")
-                                                                print("📝 With arguments: \(arguments)")
-                                                                
-                                                                let result = await functionHandler.handleFunctionCall(
-                                                                    name: functionName,
-                                                                    arguments: arguments
-                                                                )
-                                                                
-                                                                print("✅ Function result: \(result)")
-                                                                
-                                                                await sendFunctionResult(callId: callId, result: result)
-                                                                lastFunctionCall = "\(functionName): \(result)"
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        } catch {
-                                            print("   ⚠️ Failed to parse as JSON: \(error)")
-                                            
-                                            // Try to parse function call syntax like: create_task("argument")
-                                            if let functionMatch = text.range(of: #"(\w+)\((.*)\)"#, options: .regularExpression) {
-                                                let functionCall = String(text[functionMatch])
-                                                print("   🔍 Found function call syntax: \(functionCall)")
-                                                
-                                                // Extract function name and arguments
-                                                if let openParen = functionCall.firstIndex(of: "("),
-                                                   let closeParen = functionCall.lastIndex(of: ")") {
-                                                    let functionName = String(functionCall[..<openParen])
-                                                    let argsString = String(functionCall[functionCall.index(after: openParen)..<closeParen])
-                                                    
-                                                    print("   📌 Function: \(functionName)")
-                                                    print("   📌 Raw arguments: \(argsString)")
-                                                    
-                                                    // Generate a unique call ID
-                                                    let callId = UUID().uuidString
-                                                    
-                                                    if !processedFunctionCalls.contains(callId) {
-                                                        processedFunctionCalls.insert(callId)
-                                                        
-                                                        // Parse the arguments - remove quotes if it's a simple string
-                                                        var parsedArgs = ""
-                                                        if argsString.hasPrefix("\"") && argsString.hasSuffix("\"") {
-                                                            // Simple string argument
-                                                            let title = String(argsString.dropFirst().dropLast())
-                                                            parsedArgs = "{\"title\": \"\(title)\"}"
-                                                        } else if argsString.hasPrefix("'") && argsString.hasSuffix("'") {
-                                                            // Single quoted string
-                                                            let title = String(argsString.dropFirst().dropLast())
-                                                            parsedArgs = "{\"title\": \"\(title)\"}"
-                                                        } else {
-                                                            // Try to use as-is or create a title from it
-                                                            parsedArgs = "{\"title\": \"\(argsString)\"}"
-                                                        }
-                                                        
-                                                        print("🚀 Executing parsed function: \(functionName)")
-                                                        print("📝 With parsed arguments: \(parsedArgs)")
-                                                        
-                                                        let result = await functionHandler.handleFunctionCall(
-                                                            name: functionName,
-                                                            arguments: parsedArgs
-                                                        )
-                                                        
-                                                        print("✅ Function result: \(result)")
-                                                        
-                                                        await sendFunctionResult(callId: callId, result: result)
-                                                        lastFunctionCall = "\(functionName): \(result)"
-                                                    }
-                                                }
-                                            }
-                                            // Also try to extract JSON from the text
-                                            else if let jsonStart = text.range(of: "{"),
-                                               let jsonEnd = text.range(of: "}", options: String.CompareOptions.backwards) {
-                                                let jsonSubstring = String(text[jsonStart.lowerBound...jsonEnd.upperBound])
-                                                print("   🔍 Extracted potential JSON: \(jsonSubstring)")
-                                                // Try parsing the extracted JSON
-                                                if let data = jsonSubstring.data(using: String.Encoding.utf8),
-                                                   let _ = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                                    print("   ✅ Successfully parsed extracted JSON")
-                                                    // Process as above...
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            }
-                        }
+                // Log entry types
+                for entry in conversation.entries {
+                    switch entry {
+                    case .message(let msg):
+                        print("   💬 Message: role=\(msg.role)")
+                    case .functionCall(let fc):
+                        print("   🔧 Function call: \(fc.name)")
+                    case .functionCallOutput(let fco):
+                        print("   📤 Function output: \(fco.callId)")
                     }
                 }
             }
             
-            // Check for function calls that might be stuck (fallback after 2 seconds)
-            let now = Date()
-            for (callId, info) in functionCallInfo {
-                if now.timeIntervalSince(info.firstSeen) > 2.0 && !processedFunctionCalls.contains(callId) {
-                    // Function call has been pending for too long, try to process it
-                    processedFunctionCalls.insert(callId)
+            // Check ALL entries (not just new ones) to catch updated arguments
+            for entry in conversation.entries {
+                if case let .functionCall(functionCall) = entry {
+                    print("📞 Found function call entry: \(functionCall.name)")
+                    let currentState = functionCallStates[functionCall.id] ?? .pending
                     
-                    print("⏱️ Processing potentially incomplete function call after timeout: \(info.name)")
-                    print("📝 Arguments received: \(info.arguments)")
-                    
-                    // Execute the function (handler will try to fix incomplete JSON)
-                    let result = await functionHandler.handleFunctionCall(
-                        name: info.name,
-                        arguments: info.arguments
-                    )
-                    
-                    // Send the function result back
-                    await sendFunctionResult(callId: callId, result: result)
-                    
-                    lastFunctionCall = "\(info.name): \(result)"
-                    
-                    // Clean up
-                    functionCallInfo.removeValue(forKey: callId)
+                    switch currentState {
+                    case .pending:
+                        // Check if arguments are complete (valid JSON)
+                        if !functionCall.arguments.isEmpty && isValidJSON(functionCall.arguments) {
+                            // Arguments are complete and valid!
+                            functionCallStates[functionCall.id] = .ready
+                            print("✅ Function call ready with complete arguments: \(functionCall.name)")
+                            print("📝 Final arguments: \(functionCall.arguments)")
+                        } else {
+                            // Still streaming or invalid
+                            print("⏳ Function call pending: \(functionCall.name) - Args length: \(functionCall.arguments.count)")
+                        }
+                        
+                    case .ready:
+                        // Ready to process
+                        if !processedFunctionCalls.contains(functionCall.id) {
+                            processedFunctionCalls.insert(functionCall.id)
+                            functionCallStates[functionCall.id] = .processed
+                            
+                            print("🚀 Processing function call: \(functionCall.name)")
+                            
+                            // Execute the function with complete arguments
+                            let result = await functionHandler.handleFunctionCall(
+                                name: functionCall.name,
+                                arguments: functionCall.arguments
+                            )
+                            
+                            // Send result back
+                            await sendFunctionResult(callId: functionCall.id, result: result)
+                            lastFunctionCall = "\(functionCall.name): \(result)"
+                        }
+                        
+                    case .processed:
+                        // Already handled, skip
+                        break
+                    }
                 }
             }
+                    
             
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
         }
     }
+    
     
     private func isValidJSON(_ string: String) -> Bool {
         guard !string.isEmpty,

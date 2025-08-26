@@ -31,8 +31,8 @@ class AudioRecorder: NSObject, ObservableObject {
             try session.setCategory(.playAndRecord, mode: .default)
             try session.setActive(true)
 
-            // Request permission
-            session.requestRecordPermission { [weak self] allowed in
+            // Request permission using AVAudioApplication (iOS 17+)
+            AVAudioApplication.requestRecordPermission { [weak self] allowed in
                 DispatchQueue.main.async {
                     self?.isReady = allowed
                 }

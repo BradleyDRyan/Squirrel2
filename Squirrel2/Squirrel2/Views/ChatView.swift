@@ -282,23 +282,29 @@ struct ChatView: View {
                 
                 // Save complete message to Firestore
                 let finalContent = streamingMessageContent
-                let responseData: [String: Any] = [
+                // Create response data with explicit types to avoid Sendable warning
+                let responseTimestamp = Timestamp(date: aiResponse.timestamp)
+                let responseId = aiResponse.id
+                let responseIsFromUser = aiResponse.isFromUser
+                
+                let messageData: [String: Any] = [
                     "content": finalContent,
-                    "isFromUser": aiResponse.isFromUser,
-                    "timestamp": Timestamp(date: aiResponse.timestamp),
+                    "isFromUser": responseIsFromUser,
+                    "timestamp": responseTimestamp,
                     "conversationId": conversationId
                 ]
                 
                 try await db.collection("conversations")
                     .document(conversationId)
                     .collection("messages")
-                    .document(aiResponse.id)
-                    .setData(responseData)
+                    .document(responseId)
+                    .setData(messageData)
                 
                 // Update conversation's last message timestamp
+                let updateData: [String: Any] = ["lastMessageAt": Timestamp(date: Date())]
                 try await db.collection("conversations")
                     .document(conversationId)
-                    .updateData(["lastMessageAt": Timestamp(date: Date())])
+                    .updateData(updateData)
                 
                 await MainActor.run {
                     // Update the message in the array with final content
