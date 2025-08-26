@@ -28,6 +28,7 @@ class VoiceAIManager: ObservableObject {
     private let functionHandler = RealtimeFunctionHandler()
     private var conversationId: String = ""
     private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
+    private var observationTasks: [Task<Void, Never>] = [] // Track all observation tasks
     
     var entries: [Item] {
         conversation?.entries ?? []
@@ -151,9 +152,11 @@ class VoiceAIManager: ObservableObject {
                     // Build conversation context from chat history
                     var contextInstructions = """
                     RULE #1: On user input, directly call a tool. Do not generate any chat or audio output—just function call JSON.
+                    RULE #2: ALWAYS respond in ENGLISH, regardless of the language used by the user.
                     
                     You are a helpful assistant that can create and manage tasks for the user.
                     When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
+                    Always respond in English.
                     """
                     
                     if !self.chatHistory.isEmpty {
@@ -201,7 +204,7 @@ class VoiceAIManager: ObservableObject {
                     session.toolChoice = .auto
                     
                     // Set temperature to minimum allowed value
-                    session.temperature = 0.2
+                    session.temperature = 0.6
                     
                     print("✅ Session configured with \(session.tools.count) tools")
                     
@@ -220,17 +223,22 @@ class VoiceAIManager: ObservableObject {
     private func setupObservers() async {
         guard conversation != nil else { return }
         
+        // Cancel any existing observation tasks
+        cancelObservationTasks()
+        
         // Wait for connection
-        Task { [weak self] in
+        let connectionTask = Task { [weak self] in
             guard let self = self, let conversation = self.conversation else { return }
             await conversation.waitForConnection()
             self.isConnected = conversation.connected
         }
+        observationTasks.append(connectionTask)
         
         // Observe errors
-        Task { [weak self] in
+        let errorTask = Task { [weak self] in
             guard let self = self, let conversation = self.conversation else { return }
             for await error in conversation.errors {
+                if Task.isCancelled { break }
                 // Ignore temperature validation errors since 0.2 works despite the warning
                 if error.message.lowercased().contains("temperature") || 
                    error.message.contains("0.6") {
@@ -240,16 +248,18 @@ class VoiceAIManager: ObservableObject {
                 self.error = error.message
             }
         }
+        observationTasks.append(errorTask)
         
         // Observe function calls
-        Task {
+        let functionTask = Task {
             await observeFunctionCalls()
         }
+        observationTasks.append(functionTask)
         
         // Start observing conversation state
-        Task { [weak self] in
+        let stateTask = Task { [weak self] in
             guard let self = self else { return }
-            while true {
+            while !Task.isCancelled {
                 guard let conversation = self.conversation else {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                     continue
@@ -257,7 +267,7 @@ class VoiceAIManager: ObservableObject {
                 self.isListening = conversation.isListening
                 self.isConnected = conversation.connected
                 
-                // Update messages
+                // Update messages (including any user messages even without assistant responses)
                 self.messages = conversation.entries.compactMap { entry in
                     switch entry {
                     case let .message(message):
@@ -267,8 +277,22 @@ class VoiceAIManager: ObservableObject {
                     }
                 }
                 
+                // Also check if we have function calls without messages (tool-only interactions)
+                let hasFunctionCalls = conversation.entries.contains { entry in
+                    if case .functionCall = entry {
+                        return true
+                    }
+                    return false
+                }
+                
                 // Convert to ChatMessages for unified conversation
+                // Make sure to capture user messages even when assistant doesn't respond
                 self.voiceMessages = self.messages.map { message in
+                    // Debug log to see what messages we're getting
+                    if message.role == .user {
+                        print("📝 User voice message found: \(message.content)")
+                    }
+                    
                     let content = message.content.compactMap { content in
                         switch content {
                         case .text(let text):
@@ -335,6 +359,7 @@ class VoiceAIManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
             }
         }
+        observationTasks.append(stateTask)
     }
     
     private func sendToolsConfiguration() async {
@@ -375,7 +400,7 @@ class VoiceAIManager: ObservableObject {
         // Monitor conversation entries for function call items
         print("🔍 Starting function call monitoring...")
         var lastEntryCount = 0
-        while true {
+        while !Task.isCancelled {
             // Log new entries
             if conversation.entries.count != lastEntryCount {
                 print("📊 Entries count changed: \(lastEntryCount) → \(conversation.entries.count)")
@@ -429,6 +454,24 @@ class VoiceAIManager: ObservableObject {
                             // Send result back
                             await sendFunctionResult(callId: functionCall.id, result: result)
                             lastFunctionCall = "\(functionCall.name): \(result)"
+                            
+                            // For one-shot commands, check if this is a silent tool execution
+                            // If we have a function call but no AI voice response, it's a one-shot
+                            Task {
+                                // Wait a bit to see if AI responds
+                                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                                
+                                // Check if this was a silent execution (no assistant message after function)
+                                let assistantMessages = self.messages.filter { $0.role == .assistant }
+                                if assistantMessages.isEmpty {
+                                    print("🔇 Silent tool execution detected - one-shot command completed")
+                                    // Ensure user transcript is captured before dismissing
+                                    if !self.currentTranscript.isEmpty {
+                                        print("📝 Ensuring user transcript is saved: '\(self.currentTranscript)'")
+                                    }
+                                    self.shouldDismiss = true
+                                }
+                            }
                         }
                         
                     case .processed:
@@ -577,6 +620,15 @@ class VoiceAIManager: ObservableObject {
         conversation.interruptSpeech()
     }
     
+    private func cancelObservationTasks() {
+        // Cancel all observation tasks
+        for task in observationTasks {
+            task.cancel()
+        }
+        observationTasks.removeAll()
+        print("🛑 Cancelled all observation tasks")
+    }
+    
     func closeVoiceMode() async {
         // Just stop listening/handling but keep conversation alive for reuse
         guard let conversation = self.conversation else { return }
@@ -584,6 +636,86 @@ class VoiceAIManager: ObservableObject {
         conversation.stopHandlingVoice()
         isListening = false
         isConnected = false
+        
+        // Cancel observation tasks to stop the logging
+        cancelObservationTasks()
+        
+        // Wait for any pending user messages to be fully processed
+        // Check if we have a pending user transcript that hasn't been added to messages yet
+        if !currentTranscript.isEmpty {
+            print("⏳ Waiting for user transcript to be added to messages: '\(currentTranscript)'")
+            
+            // Wait up to 1 second for the user message to appear
+            var attempts = 0
+            while attempts < 10 {
+                // Check if the transcript now appears in messages
+                let hasUserMessage = messages.contains { message in
+                    if message.role == .user {
+                        let content = message.content.compactMap { content in
+                            switch content {
+                            case .input_text(let text), .text(let text):
+                                return text
+                            case .input_audio(let audio):
+                                return audio.transcript
+                            default:
+                                return nil
+                            }
+                        }.joined(separator: " ")
+                        
+                        return content.contains(currentTranscript)
+                    }
+                    return false
+                }
+                
+                if hasUserMessage {
+                    print("✅ User message found in conversation")
+                    break
+                }
+                
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                attempts += 1
+            }
+            
+            // If still not found, manually add it
+            if attempts == 10 && !currentTranscript.isEmpty {
+                print("⚠️ User message not found after waiting, adding manually")
+                // Create a manual user message
+                let manualMessage = ChatMessage(
+                    content: currentTranscript,
+                    isFromUser: true,
+                    conversationId: self.conversationId,
+                    source: .voice,
+                    voiceTranscript: currentTranscript
+                )
+                voiceMessages.append(manualMessage)
+            }
+        }
+        
+        // Final update of voice messages from conversation
+        self.voiceMessages = self.messages.map { message in
+            let content = message.content.compactMap { content in
+                switch content {
+                case .text(let text):
+                    return text
+                case .audio(let audio):
+                    return audio.transcript
+                case .input_text(let text):
+                    return text
+                case .input_audio(let audio):
+                    return audio.transcript
+                }
+            }.joined(separator: " ")
+            
+            return ChatMessage(
+                content: content,
+                isFromUser: message.role == .user,
+                conversationId: self.conversationId,
+                source: .voice,
+                voiceTranscript: content
+            )
+        }
+        
+        print("📊 Final voice messages count: \(voiceMessages.count)")
         // Don't clear conversation or set isInitialized to false
         // This allows reopening voice mode in the same chat session
     }
@@ -591,6 +723,10 @@ class VoiceAIManager: ObservableObject {
     func disconnect() async {
         // Complete teardown - only called when leaving ChatView entirely
         guard let conversation = self.conversation else { return }
+        
+        // Cancel all observation tasks first
+        cancelObservationTasks()
+        
         conversation.stopListening()
         conversation.stopHandlingVoice()
         isListening = false
@@ -602,6 +738,8 @@ class VoiceAIManager: ObservableObject {
         voiceMessages.removeAll()
         currentTranscript = ""
         error = nil
+        
+        print("✅ VoiceAIManager disconnected")
     }
     
     func reset() {
