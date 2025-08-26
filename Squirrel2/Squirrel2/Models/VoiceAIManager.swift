@@ -150,6 +150,8 @@ class VoiceAIManager: ObservableObject {
                 try await conversation.updateSession { @MainActor session in
                     // Build conversation context from chat history
                     var contextInstructions = """
+                    RULE #1: When executing a function, remain SILENT. Do not speak after function execution.
+                    
                     You are a helpful assistant that can create and manage tasks for the user.
                     When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
                     """
@@ -164,12 +166,21 @@ class VoiceAIManager: ObservableObject {
                     } else {
                         contextInstructions += """
                         
-                        IMPORTANT: Only for ONE-SHOT commands (when the user gives a single command with no prior conversation):
-                        - After executing the command, give a brief confirmation and say "goodbye" or "done"
-                        - Keep confirmations very brief - just 1 sentence
+                        YOU ARE A SILENT ASSISTANT. Your primary mode is SILENCE.
                         
-                        If there's been ANY back-and-forth conversation, continue naturally without saying goodbye.
-                        For questions or multi-step tasks, continue the conversation normally.
+                        When given commands:
+                        - Execute tools/functions
+                        - Stay SILENT
+                        - No confirmations needed
+                        - No "got it" or "done" or "I've created" 
+                        - Just execute and be quiet
+                        
+                        ONLY speak when:
+                        - User asks a direct question requiring information
+                        - User explicitly asks for a response
+                        - There's an error that needs explaining
+                        
+                        Default behavior: EXECUTE SILENTLY
                         """
                     }
                     
@@ -186,9 +197,6 @@ class VoiceAIManager: ObservableObject {
                     
                     // Set tool choice to auto
                     session.toolChoice = .auto
-                    
-                    // Set temperature
-                    session.temperature = 0.8
                     
                     print("✅ Session configured with \(session.tools.count) tools")
                     
