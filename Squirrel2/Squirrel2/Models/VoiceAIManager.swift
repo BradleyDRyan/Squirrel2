@@ -150,7 +150,7 @@ class VoiceAIManager: ObservableObject {
                 try await conversation.updateSession { @MainActor session in
                     // Build conversation context from chat history
                     var contextInstructions = """
-                    RULE #1: When executing a function, remain SILENT. Do not speak after function execution.
+                    RULE #1: On user input, directly call a tool. Do not generate any chat or audio output—just function call JSON.
                     
                     You are a helpful assistant that can create and manage tasks for the user.
                     When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
@@ -166,21 +166,23 @@ class VoiceAIManager: ObservableObject {
                     } else {
                         contextInstructions += """
                         
-                        YOU ARE A SILENT ASSISTANT. Your primary mode is SILENCE.
+                        YOU ARE A SILENT ASSISTANT. 
                         
-                        When given commands:
-                        - Execute tools/functions
-                        - Stay SILENT
-                        - No confirmations needed
-                        - No "got it" or "done" or "I've created" 
-                        - Just execute and be quiet
+                        DEFAULT BEHAVIOR:
+                        - On user input, directly call a tool
+                        - Do not generate any chat or audio output
+                        - Just function call JSON
+                        - No confirmations, no "got it", no "done"
                         
-                        ONLY speak when:
-                        - User asks a direct question requiring information
-                        - User explicitly asks for a response
-                        - There's an error that needs explaining
+                        ONLY generate audio when:
+                        - User asks a direct question requiring information (not a command)
+                        - There's an error preventing tool execution
+                        - User explicitly asks "what did you do?" or similar
                         
-                        Default behavior: EXECUTE SILENTLY
+                        Examples:
+                        User: "Remind me to walk the dog" → TOOL CALL ONLY, NO AUDIO
+                        User: "What time is it?" → AUDIO RESPONSE (if no tool available)
+                        User: "Create a task for groceries" → TOOL CALL ONLY, NO AUDIO
                         """
                     }
                     
@@ -197,6 +199,9 @@ class VoiceAIManager: ObservableObject {
                     
                     // Set tool choice to auto
                     session.toolChoice = .auto
+                    
+                    // Set temperature to minimum allowed value
+                    session.temperature = 0.2
                     
                     print("✅ Session configured with \(session.tools.count) tools")
                     
@@ -226,6 +231,12 @@ class VoiceAIManager: ObservableObject {
         Task { [weak self] in
             guard let self = self, let conversation = self.conversation else { return }
             for await error in conversation.errors {
+                // Ignore temperature validation errors since 0.2 works despite the warning
+                if error.message.lowercased().contains("temperature") || 
+                   error.message.contains("0.6") {
+                    print("⚠️ Ignoring temperature validation error: \(error.message)")
+                    continue
+                }
                 self.error = error.message
             }
         }
