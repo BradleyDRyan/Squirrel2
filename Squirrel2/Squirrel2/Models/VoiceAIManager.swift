@@ -36,9 +36,8 @@ class VoiceAIManager: ObservableObject {
     }
     
     private func initializeAsync() async {
-        // Wait for Firebase auth to be ready first
-        await waitForFirebaseAuth()
-        await fetchAPIKeyAndSetup()
+        // API key should already be available from FirebaseManager
+        await setupWithExistingKey()
     }
     
     // Public method to ensure initialization is complete
@@ -56,33 +55,21 @@ class VoiceAIManager: ObservableObject {
         }
     }
     
-    private func waitForFirebaseAuth() async {
-        // Give Firebase auth time to initialize
-        for _ in 1...20 {
-            if FirebaseManager.shared.currentUser != nil {
-                print("✅ Firebase auth ready for VoiceAIManager")
-                return
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-        }
-        print("⚠️ Firebase auth not ready after 2 seconds, continuing anyway")
-    }
-    
-    private func fetchAPIKeyAndSetup() async {
+    private func setupWithExistingKey() async {
         isLoadingKey = true
         error = nil
         
-        // Use the API key from FirebaseManager (already fetched on app start)
+        // Use the API key from FirebaseManager (should already be fetched on app start)
         if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
             apiKey = key
             print("✅ Using API key from FirebaseManager")
             setupConversation()
         } else {
-            // Try to fetch it if not available
-            print("⏳ API key not ready, waiting...")
+            // Key should be available, but wait briefly in case of race condition
+            print("⏳ API key not immediately available, waiting briefly...")
             
-            // Wait for API key to be fetched
-            for _ in 1...30 {
+            // Brief wait for API key
+            for _ in 1...5 {
                 if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
                     apiKey = key
                     print("✅ API key now available")
@@ -94,7 +81,7 @@ class VoiceAIManager: ObservableObject {
             
             if apiKey.isEmpty {
                 self.error = "OpenAI API key not available. Please check backend configuration."
-                print("❌ API key not available after waiting")
+                print("❌ API key not available - this shouldn't happen if ContentView waits properly")
             }
         }
         

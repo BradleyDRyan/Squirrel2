@@ -68,16 +68,23 @@ struct ContentView: View {
                                 showingChat = true
                             }) {
                                 HStack {
-                                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                                    Text("Open Chat")
+                                    if firebaseManager.openAIKey == nil {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.8)
+                                    } else {
+                                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                                    }
+                                    Text(firebaseManager.openAIKey == nil ? "Loading..." : "Open Chat")
                                         .font(.squirrelButtonPrimary)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(Color.squirrelPrimary)
+                                .background(firebaseManager.openAIKey == nil ? Color.squirrelPrimary.opacity(0.6) : Color.squirrelPrimary)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                             }
+                            .disabled(firebaseManager.openAIKey == nil)
                             .padding(.horizontal, 24)
                             
                             Button(action: {
