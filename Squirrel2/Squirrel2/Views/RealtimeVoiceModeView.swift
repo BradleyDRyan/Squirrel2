@@ -9,7 +9,7 @@ import SwiftUI
 import OpenAIRealtime
 
 struct RealtimeVoiceModeView: View {
-    @StateObject private var voiceAI = VoiceAIManager()
+    @StateObject private var voiceAI = VoiceAIManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var isRecording = false
     @State private var showError = false
@@ -42,20 +42,25 @@ struct RealtimeVoiceModeView: View {
             }
         }
         .onAppear {
-            // Auto-connect and start listening immediately
+            // Auto-start listening immediately (already connected)
             Task {
                 do {
                     print("🚀 Starting voice mode...")
                     
-                    // Start handling voice (establishes connection)
-                    try await voiceAI.startHandlingVoice()
-                    print("✅ Voice handling started")
+                    // Check if already connected from pre-initialization
+                    if !voiceAI.isConnected {
+                        // Connect if not already connected
+                        try await voiceAI.startHandlingVoice()
+                        print("✅ Voice handling started")
+                    } else {
+                        print("✅ Already connected to Realtime API")
+                    }
                     
-                    // Start listening automatically
+                    // Start listening immediately
                     try await voiceAI.startListening()
                     isRecording = true
                     
-                    print("🎙️ Voice mode fully started")
+                    print("🎙️ Voice mode ready")
                 } catch {
                     print("❌ Failed to start voice mode: \(error)")
                     voiceAI.error = error.localizedDescription
@@ -119,33 +124,66 @@ struct RealtimeVoiceModeView: View {
                 
                 Spacer()
                 
-                // Messages/Transcript Display
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Show conversation messages
-                        ForEach(voiceAI.messages, id: \.id) { message in
-                            MessageBubbleView(message: message)
+                // Current transcript display
+                VStack(spacing: 20) {
+                    // Show current status
+                    if voiceAI.isListening {
+                        HStack(spacing: 12) {
+                            Image(systemName: "mic.fill")
+                                .foregroundColor(.red)
+                                .font(.title3)
+                                .symbolEffect(.pulse)
+                            Text("Listening...")
+                                .font(.squirrelHeadline)
+                                .foregroundColor(.squirrelTextPrimary)
                         }
-                        
-                        // Show current transcript
-                        if !voiceAI.currentTranscript.isEmpty && isRecording {
-                            HStack {
-                                Image(systemName: "mic.fill")
-                                    .foregroundColor(.red)
-                                    .font(.caption)
-                                Text(voiceAI.currentTranscript)
-                                    .font(.squirrelBody)
-                                    .foregroundColor(.squirrelTextSecondary)
-                            }
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.8))
-                            .cornerRadius(12)
+                    } else if voiceAI.isConnected {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.title3)
+                            Text("Ready")
+                                .font(.squirrelHeadline)
+                                .foregroundColor(.squirrelTextPrimary)
                         }
                     }
-                    .padding()
+                    
+                    // Show current transcript
+                    if !voiceAI.currentTranscript.isEmpty {
+                        Text(voiceAI.currentTranscript)
+                            .font(.squirrelBody)
+                            .foregroundColor(.squirrelTextSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    
+                    // Show last AI response (simplified)
+                    if let lastAssistantMessage = voiceAI.messages.last(where: { $0.role == .assistant }) {
+                        let content = lastAssistantMessage.content.compactMap { content in
+                            switch content {
+                            case .text(let text):
+                                return text
+                            case .audio(let audio):
+                                return audio.transcript
+                            default:
+                                return nil
+                            }
+                        }.joined(separator: " ")
+                        
+                        if !content.isEmpty {
+                            Text(content)
+                                .font(.squirrelBody)
+                                .foregroundColor(.squirrelTextPrimary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 16)
+                                .background(Color.squirrelSurfaceBackground)
+                                .cornerRadius(16)
+                        }
+                    }
                 }
-                .frame(maxHeight: 400)
+                .padding()
+                .frame(maxHeight: 300)
                 
                 // Voice visualization
                 if isRecording {
@@ -236,51 +274,6 @@ struct RealtimeVoiceModeView: View {
                 }
             }
         }
-    }
-}
-
-// Message bubble view for displaying conversation
-struct MessageBubbleView: View {
-    let message: Item.Message
-    
-    var body: some View {
-        HStack {
-            if message.role == .user {
-                Spacer()
-            }
-            
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                Text(messageText)
-                    .font(.squirrelBody)
-                    .foregroundColor(message.role == .user ? .white : .squirrelTextPrimary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(message.role == .user ? Color.squirrelPrimary : Color.white)
-                    )
-            }
-            .frame(maxWidth: 280, alignment: message.role == .user ? .trailing : .leading)
-            
-            if message.role != .user {
-                Spacer()
-            }
-        }
-    }
-    
-    private var messageText: String {
-        message.content.compactMap { content in
-            switch content {
-            case .text(let text):
-                return text
-            case .input_text(let text):
-                return text
-            case .audio(let audio):
-                return audio.transcript
-            case .input_audio(let audio):
-                return audio.transcript
-            }
-        }.joined(separator: " ")
     }
 }
 

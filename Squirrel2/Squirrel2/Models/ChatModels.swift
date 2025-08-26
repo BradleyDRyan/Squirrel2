@@ -8,23 +8,34 @@
 import Foundation
 import FirebaseFirestore
 
+enum MessageSource: String, Codable {
+    case text = "text"
+    case voice = "voice"
+}
+
 struct ChatMessage: Identifiable, Codable {
     let id: String
     let content: String
     let isFromUser: Bool
     let timestamp: Date
     let conversationId: String
+    let source: MessageSource
+    let voiceTranscript: String? // For voice messages, store the original transcript
     
     init(id: String = UUID().uuidString,
          content: String,
          isFromUser: Bool,
          timestamp: Date = Date(),
-         conversationId: String) {
+         conversationId: String,
+         source: MessageSource = .text,
+         voiceTranscript: String? = nil) {
         self.id = id
         self.content = content
         self.isFromUser = isFromUser
         self.timestamp = timestamp
         self.conversationId = conversationId
+        self.source = source
+        self.voiceTranscript = voiceTranscript
     }
 }
 

@@ -44,7 +44,11 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
-                        showingVoiceMode = true
+                        // Update voice context with latest messages before showing
+                        Task {
+                            await VoiceAIManager.shared.updateChatHistory(messages)
+                            showingVoiceMode = true
+                        }
                     }) {
                         Image(systemName: "mic.circle.fill")
                             .foregroundColor(.squirrelPrimary)
@@ -56,11 +60,40 @@ struct ChatView: View {
         }
         .onAppear {
             setupConversation()
+            
+            // Initialize VoiceAIManager for this conversation with chat history
+            Task {
+                let convId = conversation?.id ?? UUID().uuidString
+                await VoiceAIManager.shared.initialize(withChatHistory: messages, conversationId: convId)
+                print("✅ VoiceAIManager initialized with \(messages.count) messages of context")
+            }
+        }
+        .onDisappear {
+            // Clean up VoiceAIManager when leaving chat
+            Task {
+                await VoiceAIManager.shared.disconnect()
+                print("✅ VoiceAIManager disconnected")
+            }
         }
         .sheet(isPresented: $showingVoiceMode) {
             RealtimeVoiceModeView()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .onDisappear {
+                    // Merge voice messages back into chat
+                    Task {
+                        let voiceMessages = VoiceAIManager.shared.getVoiceMessages()
+                        if !voiceMessages.isEmpty {
+                            messages.append(contentsOf: voiceMessages)
+                            print("✅ Merged \(voiceMessages.count) voice messages into chat")
+                            
+                            // Save to Firestore if needed
+                            if let conversation = conversation {
+                                for msg in voiceMessages {
+                                    await saveMessage(msg, to: conversation)
+                                }
+                            }
+                        }
+                    }
+                }
         }
     }
     
@@ -150,6 +183,23 @@ struct ChatView: View {
         .padding(.vertical, 20)
     }
     
+    private func saveMessage(_ message: ChatMessage, to conversation: ChatConversation) async {
+        let messageData: [String: Any] = [
+            "content": message.content,
+            "isFromUser": message.isFromUser,
+            "timestamp": Timestamp(date: message.timestamp),
+            "conversationId": message.conversationId,
+            "source": message.source.rawValue,
+            "voiceTranscript": message.voiceTranscript as Any
+        ]
+        
+        do {
+            try await db.collection("messages").document(message.id).setData(messageData)
+        } catch {
+            print("Error saving voice message: \(error)")
+        }
+    }
+    
     private func setupConversation() {
         guard let userId = firebaseManager.currentUser?.uid else { return }
         
@@ -215,7 +265,8 @@ struct ChatView: View {
         let userMessage = ChatMessage(
             content: content,
             isFromUser: true,
-            conversationId: conversationId
+            conversationId: conversationId,
+            source: .text
         )
         
         // Clear input

@@ -11,6 +11,8 @@ import Combine
 
 @MainActor
 class VoiceAIManager: ObservableObject {
+    static let shared = VoiceAIManager()
+    
     @Published var conversation: OpenAIRealtime.Conversation?
     @Published var isListening = false
     @Published var isConnected = false
@@ -20,18 +22,53 @@ class VoiceAIManager: ObservableObject {
     @Published var isLoadingKey = false
     @Published var lastFunctionCall: String?
     @Published var shouldDismiss = false
+    @Published var isInitialized = false
     
     private var apiKey: String = ""
     private let functionHandler = RealtimeFunctionHandler()
+    private var conversationId: String = ""
+    private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
     
     var entries: [Item] {
         conversation?.entries ?? []
     }
     
-    init() {
-        // Start initialization immediately
-        Task {
-            await initializeAsync()
+    // Get voice messages as ChatMessages for unified conversation
+    func getVoiceMessages() -> [ChatMessage] {
+        return voiceMessages
+    }
+    
+    private init() {
+        // Don't auto-initialize, wait for explicit initialization
+    }
+    
+    func initialize(withChatHistory chatMessages: [ChatMessage] = [], conversationId: String) async {
+        guard !isInitialized else { return }
+        
+        // Store chat history and conversation ID for context
+        self.chatHistory = chatMessages
+        self.conversationId = conversationId
+        self.voiceMessages = [] // Clear any previous voice messages
+        
+        await setupWithExistingKey()
+        
+        // Don't pre-connect WebSocket here - audio session not ready at app launch
+        // Connection will happen when voice view opens
+        
+        isInitialized = true
+    }
+    
+    private var chatHistory: [ChatMessage] = []
+    
+    func updateChatHistory(_ messages: [ChatMessage], conversationId: String? = nil) async {
+        self.chatHistory = messages
+        if let conversationId = conversationId {
+            self.conversationId = conversationId
+        }
+        
+        // If already connected, update the session with new context
+        if conversation != nil && isConnected {
+            await configureSession()
         }
     }
     
@@ -107,22 +144,36 @@ class VoiceAIManager: ObservableObject {
         guard let conversation = conversation else { return }
         
         do {
-            try await conversation.whenConnected {
+            try await conversation.whenConnected { @MainActor in
                 print("📤 Configuring session with tools...")
                 
-                try await conversation.updateSession { session in
-                    // Set instructions
-                    session.instructions = """
+                try await conversation.updateSession { @MainActor session in
+                    // Build conversation context from chat history
+                    var contextInstructions = """
                     You are a helpful assistant that can create and manage tasks for the user.
                     When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
-                    
-                    IMPORTANT: Only for ONE-SHOT commands (when the user gives a single command with no prior conversation):
-                    - After executing the command, give a brief confirmation and say "goodbye" or "done"
-                    - Keep confirmations very brief - just 1 sentence
-                    
-                    If there's been ANY back-and-forth conversation, continue naturally without saying goodbye.
-                    For questions or multi-step tasks, continue the conversation normally.
                     """
+                    
+                    if !self.chatHistory.isEmpty {
+                        contextInstructions += "\n\nPrevious conversation context:\n"
+                        for msg in self.chatHistory.suffix(10) { // Last 10 messages for context
+                            let role = msg.isFromUser ? "User" : "Assistant"
+                            contextInstructions += "\(role): \(msg.content)\n"
+                        }
+                        contextInstructions += "\nContinue the conversation naturally based on this context."
+                    } else {
+                        contextInstructions += """
+                        
+                        IMPORTANT: Only for ONE-SHOT commands (when the user gives a single command with no prior conversation):
+                        - After executing the command, give a brief confirmation and say "goodbye" or "done"
+                        - Keep confirmations very brief - just 1 sentence
+                        
+                        If there's been ANY back-and-forth conversation, continue naturally without saying goodbye.
+                        For questions or multi-step tasks, continue the conversation normally.
+                        """
+                    }
+                    
+                    session.instructions = contextInstructions
                     
                     // Set voice
                     session.voice = .alloy
@@ -143,7 +194,7 @@ class VoiceAIManager: ObservableObject {
                     
                     // Log the tools for debugging
                     for tool in session.tools {
-                        print("   📌 Tool: \(tool.name ?? "unknown")")
+                        print("   📌 Tool: \(tool.name)")
                     }
                 }
             }
@@ -197,6 +248,31 @@ class VoiceAIManager: ObservableObject {
                     }
                 }
                 
+                // Convert to ChatMessages for unified conversation
+                self.voiceMessages = self.messages.map { message in
+                    let content = message.content.compactMap { content in
+                        switch content {
+                        case .text(let text):
+                            return text
+                        case .audio(let audio):
+                            return audio.transcript
+                        case .input_text(let text):
+                            return text
+                        case .input_audio(let audio):
+                            // User's voice input transcript
+                            return audio.transcript
+                        }
+                    }.joined(separator: " ")
+                    
+                    return ChatMessage(
+                        content: content,
+                        isFromUser: message.role == .user,
+                        conversationId: self.conversationId,
+                        source: .voice,
+                        voiceTranscript: content
+                    )
+                }
+                
                 // Check if AI said goodbye/done (only relevant for one-shot commands)
                 // Count user messages to determine if it's a one-shot
                 let userMessageCount = self.messages.filter { $0.role == .user }.count
@@ -243,7 +319,7 @@ class VoiceAIManager: ObservableObject {
     }
     
     private func sendToolsConfiguration() async {
-        guard let conversation = conversation else { return }
+        guard conversation != nil else { return }
         
         // Create the session.update event with tools
         let sessionUpdate: [String: Any] = [
@@ -255,7 +331,7 @@ class VoiceAIManager: ObservableObject {
         
         // Send the tools configuration
         if let jsonData = try? JSONSerialization.data(withJSONObject: sessionUpdate),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
+           let _ = String(data: jsonData, encoding: .utf8) {
             print("📤 Sending tools configuration to Realtime API")
             print("📋 Tools: \(RealtimeFunctions.availableFunctionsJSON.count) functions")
             
@@ -489,6 +565,12 @@ class VoiceAIManager: ObservableObject {
         conversation.stopHandlingVoice()
         isListening = false
         isConnected = false
+        isInitialized = false
+        // Clear the conversation for next use
+        self.conversation = nil
+        messages.removeAll()
+        currentTranscript = ""
+        error = nil
     }
     
     func reset() {
