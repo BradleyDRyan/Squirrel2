@@ -9,9 +9,10 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
+    @StateObject private var authService = AuthService.shared
     @State private var showingChat = false
     @State private var showingPhoneAuth = false
-    @State private var showingAPISettings = false
+    @State private var isSigningIn = false
     
     var body: some View {
         NavigationView {
@@ -28,7 +29,7 @@ struct ContentView: View {
                         .font(.squirrelLargeTitle)
                         .foregroundColor(.squirrelTextPrimary)
                     
-                    Text(firebaseManager.isAuthenticated ? "Welcome back!" : "Your AI companion")
+                    Text(firebaseManager.isAuthenticated ? "Welcome!" : "Your AI companion")
                         .font(.squirrelSubheadline)
                         .foregroundColor(.squirrelTextSecondary)
                 }
@@ -37,7 +38,16 @@ struct ContentView: View {
                 
                 // Auth status and actions
                 VStack(spacing: 20) {
-                    if firebaseManager.isAuthenticated {
+                    if isSigningIn {
+                        // Loading state
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                            Text("Setting up your account...")
+                                .font(.squirrelCallout)
+                                .foregroundColor(.squirrelTextSecondary)
+                        }
+                    } else if firebaseManager.isAuthenticated {
                         // Authenticated state
                         VStack(spacing: 16) {
                             if let phoneNumber = firebaseManager.currentUser?.phoneNumber {
@@ -54,7 +64,9 @@ struct ContentView: View {
                                 .cornerRadius(20)
                             }
                             
-                            Button(action: { showingChat = true }) {
+                            Button(action: { 
+                                showingChat = true
+                            }) {
                                 HStack {
                                     Image(systemName: "bubble.left.and.bubble.right.fill")
                                     Text("Open Chat")
@@ -77,25 +89,13 @@ struct ContentView: View {
                             }
                         }
                     } else {
-                        // Not authenticated state
+                        // Not authenticated state - will auto sign in
                         VStack(spacing: 16) {
-                            Text("Sign in to get started")
+                            ProgressView()
+                                .scaleEffect(1.2)
+                            Text("Preparing your experience...")
                                 .font(.squirrelCallout)
                                 .foregroundColor(.squirrelTextSecondary)
-                            
-                            Button(action: { showingPhoneAuth = true }) {
-                                HStack {
-                                    Image(systemName: "phone.fill")
-                                    Text("Sign in with Phone")
-                                        .font(.squirrelButtonPrimary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(Color.squirrelPrimary)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
-                            }
-                            .padding(.horizontal, 24)
                         }
                     }
                 }
@@ -103,14 +103,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.squirrelBackground)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAPISettings = true }) {
-                        Image(systemName: "gearshape.fill")
-                            .foregroundColor(.squirrelPrimary)
-                    }
-                }
-            }
+            // Settings button removed - API key is managed by backend
         }
         .sheet(isPresented: $showingChat) {
             ChatView()
@@ -120,8 +113,47 @@ struct ContentView: View {
             PhoneAuthView()
                 .environmentObject(firebaseManager)
         }
-        .sheet(isPresented: $showingAPISettings) {
-            APISettingsView()
+        .onAppear {
+            // Automatically sign in anonymously if not authenticated
+            if !firebaseManager.isAuthenticated && !isSigningIn {
+                Task {
+                    isSigningIn = true
+                    do {
+                        try await authService.signInAnonymously()
+                        
+                        // Wait for FirebaseManager's auth state to be updated via listener
+                        var retries = 0
+                        while firebaseManager.currentUser == nil && retries < 20 {
+                            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                            retries += 1
+                        }
+                        
+                        // Pre-fetch the OpenAI API key after authentication is confirmed
+                        if let user = firebaseManager.currentUser {
+                            print("🔑 Pre-fetching API key for user: \(user.uid)")
+                            do {
+                                _ = try await APIConfig.fetchAPIKeyFromBackend()
+                                print("✅ API key pre-loaded successfully")
+                            } catch {
+                                print("⚠️ Failed to pre-fetch API key: \(error)")
+                                // Not critical - will retry when needed
+                            }
+                        } else {
+                            print("⚠️ Auth completed but FirebaseManager.currentUser not available after \(retries) retries")
+                        }
+                        
+                        isSigningIn = false
+                    } catch {
+                        print("❌ Failed to sign in: \(error)")
+                        isSigningIn = false
+                        // Retry after a delay
+                        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                        if !firebaseManager.isAuthenticated {
+                            try? await authService.signInAnonymously()
+                        }
+                    }
+                }
+            }
         }
     }
 }

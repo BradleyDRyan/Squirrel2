@@ -5,22 +5,21 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-const firebaseAdmin = require('./config/firebase');
-const apiRoutes = require('./routes/api');
-const authRoutes = require('./routes/auth');
-const userRoutes = require('./routes/users');
-const phoneAuthRoutes = require('./routes/phone-auth');
-const conversationRoutes = require('./routes/conversations');
-const messageRoutes = require('./routes/messages');
-const taskRoutes = require('./routes/tasks');
-const entryRoutes = require('./routes/entries');
-const thoughtRoutes = require('./routes/thoughts');
-const spaceRoutes = require('./routes/spaces');
-const aiRoutes = require('./routes/ai');
-const realtimeRoutes = require('./routes/realtime');
+const firebaseAdmin = require('../src/config/firebase');
+const apiRoutes = require('../src/routes/api');
+const authRoutes = require('../src/routes/auth');
+const userRoutes = require('../src/routes/users');
+const phoneAuthRoutes = require('../src/routes/phone-auth');
+const conversationRoutes = require('../src/routes/conversations');
+const messageRoutes = require('../src/routes/messages');
+const taskRoutes = require('../src/routes/tasks');
+const entryRoutes = require('../src/routes/entries');
+const thoughtRoutes = require('../src/routes/thoughts');
+const spaceRoutes = require('../src/routes/spaces');
+const aiRoutes = require('../src/routes/ai');
+const realtimeRoutes = require('../src/routes/realtime');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -28,10 +27,17 @@ const limiter = rateLimit({
 });
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan('dev'));
+
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+}
+
 app.use('/api', limiter);
 
 app.get('/', (req, res) => {
@@ -73,6 +79,4 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Squirrel 2.0 Backend running on port ${PORT}`);
-});
+module.exports = app;

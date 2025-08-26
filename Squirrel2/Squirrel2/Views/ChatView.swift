@@ -12,11 +12,14 @@ import FirebaseFirestore
 struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var firebaseManager: FirebaseManager
+    @StateObject private var aiManager = ChatAIManager()
     @State private var messages: [ChatMessage] = []
     @State private var messageText = ""
     @State private var isLoading = false
     @State private var conversation: ChatConversation?
     @State private var showingVoiceMode = false
+    @State private var streamingMessageId: String?
+    @State private var streamingMessageContent = ""
     @FocusState private var isInputFocused: Bool
     
     private let db = Firestore.firestore()
@@ -70,8 +73,19 @@ struct ChatView: View {
                         emptyState
                     } else {
                         ForEach(messages) { message in
-                            MessageBubble(message: message)
+                            if message.id == streamingMessageId {
+                                MessageBubble(message: ChatMessage(
+                                    id: message.id,
+                                    content: streamingMessageContent,
+                                    isFromUser: message.isFromUser,
+                                    timestamp: message.timestamp,
+                                    conversationId: message.conversationId
+                                ))
                                 .id(message.id)
+                            } else {
+                                MessageBubble(message: message)
+                                    .id(message.id)
+                            }
                         }
                     }
                     
@@ -239,36 +253,103 @@ struct ChatView: View {
     private func simulateAIResponse(for userMessage: String, conversationId: String) {
         isLoading = true
         
-        // Simulate network delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            let aiResponse = ChatMessage(
-                content: "I understand you said: \"\(userMessage)\". This is a simulated response. Integration with Claude API would go here.",
-                isFromUser: false,
-                conversationId: conversationId
-            )
-            
-            let responseData: [String: Any] = [
-                "content": aiResponse.content,
-                "isFromUser": aiResponse.isFromUser,
-                "timestamp": Timestamp(date: aiResponse.timestamp),
-                "conversationId": conversationId
-            ]
-            
-            self.db.collection("conversations")
-                .document(conversationId)
-                .collection("messages")
-                .document(aiResponse.id)
-                .setData(responseData) { error in
-                    self.isLoading = false
-                    if let error = error {
-                        print("Error saving AI response: \(error)")
-                    }
+        Task {
+            do {
+                // Create AI response message placeholder
+                let aiResponse = ChatMessage(
+                    content: "",
+                    isFromUser: false,
+                    conversationId: conversationId
+                )
+                
+                // Set up streaming
+                streamingMessageId = aiResponse.id
+                streamingMessageContent = ""
+                
+                // Add placeholder to messages for immediate UI feedback
+                await MainActor.run {
+                    self.messages.append(aiResponse)
                 }
-            
-            // Update conversation's last message timestamp
-            self.db.collection("conversations")
-                .document(conversationId)
-                .updateData(["lastMessageAt": Timestamp(date: Date())])
+                
+                // Stream AI response
+                try await aiManager.streamMessageWithHistory(
+                    userMessage,
+                    history: messages.dropLast() // Don't include the placeholder in history
+                ) { chunk in
+                    // Update streaming content
+                    self.streamingMessageContent += chunk
+                }
+                
+                // Save complete message to Firestore
+                let finalContent = streamingMessageContent
+                let responseData: [String: Any] = [
+                    "content": finalContent,
+                    "isFromUser": aiResponse.isFromUser,
+                    "timestamp": Timestamp(date: aiResponse.timestamp),
+                    "conversationId": conversationId
+                ]
+                
+                try await db.collection("conversations")
+                    .document(conversationId)
+                    .collection("messages")
+                    .document(aiResponse.id)
+                    .setData(responseData)
+                
+                // Update conversation's last message timestamp
+                try await db.collection("conversations")
+                    .document(conversationId)
+                    .updateData(["lastMessageAt": Timestamp(date: Date())])
+                
+                await MainActor.run {
+                    // Update the message in the array with final content
+                    if let index = self.messages.firstIndex(where: { $0.id == aiResponse.id }) {
+                        self.messages[index] = ChatMessage(
+                            id: aiResponse.id,
+                            content: finalContent,
+                            isFromUser: false,
+                            timestamp: aiResponse.timestamp,
+                            conversationId: conversationId
+                        )
+                    }
+                    
+                    self.streamingMessageId = nil
+                    self.streamingMessageContent = ""
+                    self.isLoading = false
+                }
+                
+            } catch {
+                print("Error getting AI response: \(error)")
+                await MainActor.run {
+                    // Remove placeholder message if exists
+                    if let streamId = self.streamingMessageId {
+                        self.messages.removeAll { $0.id == streamId }
+                    }
+                    
+                    self.streamingMessageId = nil
+                    self.streamingMessageContent = ""
+                    self.isLoading = false
+                    
+                    // Show error message to user
+                    let errorMessage = ChatMessage(
+                        content: "Sorry, I couldn't process your message. Error: \(error.localizedDescription)",
+                        isFromUser: false,
+                        conversationId: conversationId
+                    )
+                    
+                    let errorData: [String: Any] = [
+                        "content": errorMessage.content,
+                        "isFromUser": errorMessage.isFromUser,
+                        "timestamp": Timestamp(date: errorMessage.timestamp),
+                        "conversationId": conversationId
+                    ]
+                    
+                    self.db.collection("conversations")
+                        .document(conversationId)
+                        .collection("messages")
+                        .document(errorMessage.id)
+                        .setData(errorData)
+                }
+            }
         }
     }
 }

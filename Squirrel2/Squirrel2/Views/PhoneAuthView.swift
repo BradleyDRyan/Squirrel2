@@ -68,19 +68,30 @@ struct PhoneAuthView: View {
     private func sendVerificationCode() {
         guard let formattedNumber = formatAndValidatePhoneNumber() else { return }
         
+        print("📱 Sending verification code to: \(formattedNumber)")
+        print("🔗 Using base URL: \(AppConfig.authBaseURL)")
+        
         isLoading = true
         errorMessage = ""
         
         Task {
             do {
                 try await authService.sendVerificationCode(to: formattedNumber)
+                print("✅ Verification code sent successfully")
                 await MainActor.run {
                     showVerificationView = true
                     isLoading = false
                 }
             } catch {
+                print("❌ Error sending code: \(error)")
+                print("❌ Error details: \(error.localizedDescription)")
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    // Show more detailed error message
+                    if let nsError = error as NSError? {
+                        errorMessage = "Error (\(nsError.code)): \(nsError.localizedDescription)"
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
                     isLoading = false
                 }
             }
@@ -216,7 +227,7 @@ struct PhoneNumberInputView: View {
                                 .stroke(errorMessage.isEmpty ? Color.clear : Color.red.opacity(0.5), lineWidth: 1)
                         )
                         .disabled(isLoading)
-                        .onChange(of: phoneNumber) { newValue in
+                        .onChange(of: phoneNumber) { _, newValue in
                             phoneNumber = formatPhoneNumberAsTyping(newValue)
                         }
                     
@@ -352,7 +363,7 @@ struct VerificationCodeView: View {
                                 .stroke(errorMessage.isEmpty ? Color.clear : Color.red.opacity(0.5), lineWidth: 1)
                         )
                         .disabled(isLoading)
-                        .onChange(of: verificationCode) { newValue in
+                        .onChange(of: verificationCode) { _, newValue in
                             // Limit to 6 digits
                             let filtered = newValue.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
                             if filtered.count > 6 {

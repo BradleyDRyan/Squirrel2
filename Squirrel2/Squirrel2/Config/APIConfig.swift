@@ -6,42 +6,61 @@
 //
 
 import Foundation
+import FirebaseAuth
 
 struct APIConfig {
-    // IMPORTANT: For production, use environment variables or secure storage
-    // Never commit actual API keys to source control
+    // IMPORTANT: Replace this with your actual OpenAI API key
+    // Get one from: https://platform.openai.com/api-keys
+    private static let OPENAI_API_KEY = "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"
+    
+    private static var cachedKey: String?
     
     static var openAIKey: String {
-        // Option 1: Environment variable (recommended for development)
-        if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] {
+        // Check UserDefaults first for a saved key
+        if let savedKey = UserDefaults.standard.string(forKey: "OpenAIAPIKey"), !savedKey.isEmpty {
+            return savedKey
+        }
+        
+        // Return cached key if available
+        if let key = cachedKey {
             return key
         }
         
-        // Option 2: Read from a local config file (not committed to git)
-        if let configURL = Bundle.main.url(forResource: "Config", withExtension: "plist"),
-           let config = NSDictionary(contentsOf: configURL),
-           let key = config["OpenAIAPIKey"] as? String {
-            return key
-        }
-        
-        // Option 3: UserDefaults (for user-provided keys)
-        if let key = UserDefaults.standard.string(forKey: "OpenAIAPIKey") {
-            return key
-        }
-        
-        // Option 4: Development key (DO NOT COMMIT TO PRODUCTION)
-        // This should be fetched from backend or stored securely
-        return "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"
+        // Return the hardcoded key
+        return OPENAI_API_KEY
     }
     
-    // Method to save user-provided API key
+    // Method to save API key
     static func saveOpenAIKey(_ key: String) {
+        cachedKey = key
         UserDefaults.standard.set(key, forKey: "OpenAIAPIKey")
     }
     
     // Method to check if API key is configured
     static var isOpenAIKeyConfigured: Bool {
         let key = openAIKey
-        return !key.isEmpty && key.hasPrefix("sk-")
+        return !key.isEmpty && key != "YOUR_OPENAI_API_KEY_HERE" && (key.hasPrefix("sk-") || key.hasPrefix("sk-proj-"))
     }
+    
+    // Simplified method that doesn't require backend
+    static func getLocalAPIKey() async throws -> String {
+        guard isOpenAIKeyConfigured else {
+            throw NSError(domain: "APIConfig", code: 400, userInfo: [
+                NSLocalizedDescriptionKey: "OpenAI API key not configured. Please add your key in APIConfig.swift"
+            ])
+        }
+        return openAIKey
+    }
+    
+    // Keep the backend method but make it optional
+    static func fetchAPIKeyFromBackend() async throws -> String {
+        // For now, just return the local key since backend is not available
+        return try await getLocalAPIKey()
+    }
+}
+
+struct APIKeyResponse: Codable {
+    let success: Bool
+    let apiKey: String?
+    let error: String?
 }

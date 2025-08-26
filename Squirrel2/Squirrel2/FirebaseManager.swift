@@ -39,7 +39,7 @@ class FirebaseManager: NSObject, ObservableObject {
         print("✅ Firebase configured successfully")
         print("📱 App Name: \(app.name)")
         print("🔑 Project ID: \(app.options.projectID ?? "nil")")
-        print("📦 Bundle ID: \(app.options.bundleID ?? "nil")")
+        print("📦 Bundle ID: \(app.options.bundleID)")
         print("🔗 API Key: \(app.options.apiKey ?? "nil")")
         
         self.auth = Auth.auth()
@@ -73,7 +73,7 @@ class FirebaseManager: NSObject, ObservableObject {
         #endif
         
         // Set language code
-        auth.languageCode = Locale.current.languageCode
+        auth.languageCode = Locale.current.language.languageCode?.identifier
     }
     
     // Send verification code to phone number

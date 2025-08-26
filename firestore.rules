@@ -9,11 +9,47 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
     
+    // User profiles
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow write: if isOwner(userId);
     }
     
+    // Conversations - allow all authenticated users (including anonymous)
+    match /conversations/{conversationId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Messages within conversations
+    match /conversations/{conversationId}/messages/{messageId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Spaces
+    match /spaces/{spaceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Tasks
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Entries
+    match /entries/{entryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Thoughts
+    match /thoughts/{thoughtId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Generic data collection (fallback)
     match /data/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();

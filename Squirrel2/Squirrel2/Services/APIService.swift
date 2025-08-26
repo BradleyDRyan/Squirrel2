@@ -9,11 +9,8 @@ class APIService: ObservableObject {
     private var authToken: String?
     
     init() {
-        #if DEBUG
-        self.baseURL = "http://localhost:3000/api"
-        #else
-        self.baseURL = "https://your-production-url.com/api"
-        #endif
+        // Using centralized configuration
+        self.baseURL = AppConfig.apiBaseURL
     }
     
     func setAuthToken(_ token: String) {

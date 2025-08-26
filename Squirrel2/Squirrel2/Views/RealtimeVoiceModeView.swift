@@ -24,9 +24,19 @@ struct RealtimeVoiceModeView: View {
             )
             .ignoresSafeArea()
             
-            VStack(spacing: 30) {
-                // Header
-                HStack {
+            if voiceAI.isLoadingKey {
+                // Loading state while fetching API key
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    Text("Setting up voice AI...")
+                        .font(.squirrelHeadline)
+                        .foregroundColor(.squirrelTextSecondary)
+                }
+            } else {
+                VStack(spacing: 30) {
+                    // Header
+                    HStack {
                     Button("Cancel") {
                         Task {
                             await voiceAI.disconnect()
@@ -141,6 +151,7 @@ struct RealtimeVoiceModeView: View {
                 
                 Spacer()
             }
+            }
         }
         .alert("Error", isPresented: $showError) {
             Button("OK") { }
@@ -237,8 +248,6 @@ struct MessageBubbleView: View {
                 return audio.transcript
             case .input_audio(let audio):
                 return audio.transcript
-            default:
-                return nil
             }
         }.joined(separator: " ")
     }
