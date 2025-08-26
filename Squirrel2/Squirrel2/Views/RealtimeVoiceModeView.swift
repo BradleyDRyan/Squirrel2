@@ -32,15 +32,34 @@ struct RealtimeVoiceModeView: View {
         .onChange(of: voiceAI.error) { _, newError in
             showError = newError != nil
         }
+        .onChange(of: voiceAI.shouldDismiss) { _, shouldDismiss in
+            if shouldDismiss {
+                // Auto-dismiss after simple command
+                Task {
+                    await voiceAI.disconnect()
+                    dismiss()
+                }
+            }
+        }
         .onAppear {
-            // Auto-start voice handling when view appears
+            // Auto-connect and start listening immediately
             Task {
                 do {
+                    print("🚀 Starting voice mode...")
+                    
+                    // Start handling voice (establishes connection)
                     try await voiceAI.startHandlingVoice()
+                    print("✅ Voice handling started")
+                    
+                    // Start listening automatically
                     try await voiceAI.startListening()
                     isRecording = true
+                    
+                    print("🎙️ Voice mode fully started")
                 } catch {
-                    print("Failed to start voice mode: \(error)")
+                    print("❌ Failed to start voice mode: \(error)")
+                    voiceAI.error = error.localizedDescription
+                    isRecording = false
                 }
             }
         }

@@ -128,15 +128,21 @@ struct ContentView: View {
                             retries += 1
                         }
                         
-                        // Pre-fetch the OpenAI API key after authentication is confirmed
-                        if let user = firebaseManager.currentUser {
-                            print("🔑 Pre-fetching API key for user: \(user.uid)")
-                            do {
-                                _ = try await APIConfig.fetchAPIKeyFromBackend()
-                                print("✅ API key pre-loaded successfully")
-                            } catch {
-                                print("⚠️ Failed to pre-fetch API key: \(error)")
-                                // Not critical - will retry when needed
+                        // Wait for API key to be fetched
+                        if firebaseManager.currentUser != nil {
+                            print("✅ User authenticated: \(firebaseManager.currentUser!.uid)")
+                            
+                            // Wait for API key
+                            var keyRetries = 0
+                            while firebaseManager.openAIKey == nil && keyRetries < 30 {
+                                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                                keyRetries += 1
+                            }
+                            
+                            if firebaseManager.openAIKey != nil {
+                                print("✅ API key ready")
+                            } else {
+                                print("⚠️ API key not available after \(keyRetries) retries")
                             }
                         } else {
                             print("⚠️ Auth completed but FirebaseManager.currentUser not available after \(retries) retries")

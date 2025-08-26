@@ -18,6 +18,7 @@ const thoughtRoutes = require('./routes/thoughts');
 const spaceRoutes = require('./routes/spaces');
 const aiRoutes = require('./routes/ai');
 const realtimeRoutes = require('./routes/realtime');
+const configRoutes = require('./routes/config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -64,6 +65,7 @@ app.use('/api/entries', entryRoutes);
 app.use('/api/thoughts', thoughtRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);
+app.use('/api/config', configRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

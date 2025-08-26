@@ -1,1 +1,8 @@
+# API Keys and Secrets
+**/APIConfig.local.swift
+**/*.local.swift
+.env
+.env.local
+
+# Vercel
 .vercel

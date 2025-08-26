@@ -8,96 +8,36 @@
 import SwiftUI
 
 struct APISettingsView: View {
-    @State private var apiKey = ""
-    @State private var showingKey = false
-    @State private var keyIsSaved = false
+    @EnvironmentObject var firebaseManager: FirebaseManager
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationView {
             Form {
-                Section {
+                Section("API Key Status") {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("OpenAI API Key", systemImage: "key.fill")
                             .font(.squirrelHeadline)
                             .foregroundColor(.squirrelPrimary)
                         
-                        Text("Required for voice AI conversations")
-                            .font(.squirrelFootnote)
-                            .foregroundColor(.squirrelTextSecondary)
-                    }
-                    
-                    HStack {
-                        if showingKey {
-                            TextField("sk-...", text: $apiKey)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .autocapitalization(.none)
-                                .disableAutocorrection(true)
-                        } else {
-                            SecureField("sk-...", text: $apiKey)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .autocapitalization(.none)
-                                .disableAutocorrection(true)
+                        HStack {
+                            Text("Status:")
+                                .font(.squirrelCallout)
+                            Spacer()
+                            if firebaseManager.openAIKey != nil {
+                                Label("Configured", systemImage: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.squirrelFootnote)
+                            } else {
+                                Label("Loading...", systemImage: "arrow.clockwise.circle")
+                                    .foregroundColor(.orange)
+                                    .font(.squirrelFootnote)
+                            }
                         }
                         
-                        Button(action: { showingKey.toggle() }) {
-                            Image(systemName: showingKey ? "eye.slash" : "eye")
-                                .foregroundColor(.squirrelTextSecondary)
-                        }
-                    }
-                    
-                    Button(action: saveAPIKey) {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                            Text("Save API Key")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.squirrelPrimary)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    .disabled(apiKey.isEmpty)
-                    
-                    if keyIsSaved {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text("API Key saved successfully")
-                                .font(.squirrelFootnote)
-                                .foregroundColor(.green)
-                        }
-                    }
-                } header: {
-                    Text("Configuration")
-                } footer: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Get your API key from:")
-                            .font(.squirrelFootnote)
-                        Link("platform.openai.com/api-keys", 
-                             destination: URL(string: "https://platform.openai.com/api-keys")!)
-                            .font(.squirrelFootnote)
-                        
-                        Text("Your API key is stored securely on this device and never sent to our servers.")
+                        Text("API key is managed automatically by the backend")
                             .font(.squirrelFootnote)
                             .foregroundColor(.squirrelTextSecondary)
-                            .padding(.top, 4)
-                    }
-                }
-                
-                Section("Current Status") {
-                    HStack {
-                        Text("API Key Status")
-                        Spacer()
-                        if APIConfig.isOpenAIKeyConfigured {
-                            Label("Configured", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.squirrelFootnote)
-                        } else {
-                            Label("Not Configured", systemImage: "xmark.circle.fill")
-                                .foregroundColor(.red)
-                                .font(.squirrelFootnote)
-                        }
                     }
                 }
                 
@@ -132,32 +72,10 @@ struct APISettingsView: View {
                 }
             }
         }
-        .onAppear {
-            // Load existing key if available (masked for security)
-            if APIConfig.isOpenAIKeyConfigured {
-                apiKey = String(repeating: "•", count: 20) + "..."
-            }
-        }
-    }
-    
-    private func saveAPIKey() {
-        guard !apiKey.isEmpty && !apiKey.contains("•") else { return }
-        
-        APIConfig.saveOpenAIKey(apiKey)
-        
-        withAnimation {
-            keyIsSaved = true
-        }
-        
-        // Hide success message after 2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation {
-                keyIsSaved = false
-            }
-        }
     }
 }
 
 #Preview {
     APISettingsView()
+        .environmentObject(FirebaseManager.shared)
 }

@@ -18,6 +18,7 @@ const thoughtRoutes = require('../src/routes/thoughts');
 const spaceRoutes = require('../src/routes/spaces');
 const aiRoutes = require('../src/routes/ai');
 const realtimeRoutes = require('../src/routes/realtime');
+const configRoutes = require('../src/routes/config');
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/entries', entryRoutes);
 app.use('/api/thoughts', thoughtRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);
+app.use('/api/config', configRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

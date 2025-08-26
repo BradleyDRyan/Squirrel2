@@ -19,6 +19,7 @@ class VoiceAIManager: ObservableObject {
     @Published var error: String?
     @Published var isLoadingKey = false
     @Published var lastFunctionCall: String?
+    @Published var shouldDismiss = false
     
     private var apiKey: String = ""
     private let functionHandler = RealtimeFunctionHandler()
@@ -28,10 +29,30 @@ class VoiceAIManager: ObservableObject {
     }
     
     init() {
+        // Start initialization immediately
         Task {
-            // Wait for Firebase auth to be ready first
-            await waitForFirebaseAuth()
-            await fetchAPIKeyAndSetup()
+            await initializeAsync()
+        }
+    }
+    
+    private func initializeAsync() async {
+        // Wait for Firebase auth to be ready first
+        await waitForFirebaseAuth()
+        await fetchAPIKeyAndSetup()
+    }
+    
+    // Public method to ensure initialization is complete
+    func ensureInitialized() async {
+        if conversation == nil {
+            await initializeAsync()
+        }
+        
+        // Wait for conversation to be ready
+        for _ in 1...30 {
+            if conversation != nil {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
     
@@ -51,20 +72,31 @@ class VoiceAIManager: ObservableObject {
         isLoadingKey = true
         error = nil
         
-        // Check if API key is configured
-        if APIConfig.isOpenAIKeyConfigured {
-            apiKey = APIConfig.openAIKey
-            print("✅ Using configured API key")
+        // Use the API key from FirebaseManager (already fetched on app start)
+        if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
+            apiKey = key
+            print("✅ Using API key from FirebaseManager")
             setupConversation()
-            isLoadingKey = false
-            return
+        } else {
+            // Try to fetch it if not available
+            print("⏳ API key not ready, waiting...")
+            
+            // Wait for API key to be fetched
+            for _ in 1...30 {
+                if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
+                    apiKey = key
+                    print("✅ API key now available")
+                    setupConversation()
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            }
+            
+            if apiKey.isEmpty {
+                self.error = "OpenAI API key not available. Please check backend configuration."
+                print("❌ API key not available after waiting")
+            }
         }
-        
-        // If not configured, show error
-        self.error = "OpenAI API key not configured. Please add your key in APIConfig.swift"
-        print("❌ OpenAI API key not configured")
-        print("📝 To fix: Replace 'YOUR_OPENAI_API_KEY_HERE' in APIConfig.swift with your actual key")
-        print("🔗 Get a key from: https://platform.openai.com/api-keys")
         
         isLoadingKey = false
     }
@@ -96,7 +128,13 @@ class VoiceAIManager: ObservableObject {
                     session.instructions = """
                     You are a helpful assistant that can create and manage tasks for the user.
                     When users ask you to create reminders, tasks, or manage their to-do list, use the available functions.
-                    Be conversational and confirm when tasks are created or modified.
+                    
+                    IMPORTANT: Only for ONE-SHOT commands (when the user gives a single command with no prior conversation):
+                    - After executing the command, give a brief confirmation and say "goodbye" or "done"
+                    - Keep confirmations very brief - just 1 sentence
+                    
+                    If there's been ANY back-and-forth conversation, continue naturally without saying goodbye.
+                    For questions or multi-step tasks, continue the conversation normally.
                     """
                     
                     // Set voice
@@ -169,6 +207,32 @@ class VoiceAIManager: ObservableObject {
                         return message
                     default:
                         return nil
+                    }
+                }
+                
+                // Check if AI said goodbye/done (only relevant for one-shot commands)
+                // Count user messages to determine if it's a one-shot
+                let userMessageCount = self.messages.filter { $0.role == .user }.count
+                
+                if userMessageCount == 1, // Only one user message (one-shot)
+                   let lastMessage = self.messages.last,
+                   lastMessage.role == .assistant {
+                    let content = lastMessage.content.compactMap { content in
+                        switch content {
+                        case .text(let text):
+                            return text.lowercased()
+                        case .audio(let audio):
+                            return audio.transcript?.lowercased()
+                        default:
+                            return nil
+                        }
+                    }.joined(separator: " ")
+                    
+                    // Check for conversation ending signals
+                    let endSignals = ["goodbye", "bye", "done", "that's all", "all set", "you're all set"]
+                    if endSignals.contains(where: { content.contains($0) }) {
+                        print("🔚 One-shot command completed, AI signaled end")
+                        self.shouldDismiss = true
                     }
                 }
                 
@@ -251,7 +315,6 @@ class VoiceAIManager: ObservableObject {
             // Check ALL entries (not just new ones) to catch updated arguments
             for entry in conversation.entries {
                 if case let .functionCall(functionCall) = entry {
-                    print("📞 Found function call entry: \(functionCall.name)")
                     let currentState = functionCallStates[functionCall.id] ?? .pending
                     
                     switch currentState {
@@ -345,7 +408,21 @@ class VoiceAIManager: ObservableObject {
     }
     
     func startListening() async throws {
+        // Ensure conversation is initialized
+        if conversation == nil {
+            print("⏳ Conversation not ready, waiting...")
+            // Wait for initialization
+            for _ in 1...30 {
+                if conversation != nil && isConnected {
+                    print("✅ Conversation ready")
+                    break
+                }
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            }
+        }
+        
         guard let conversation = self.conversation else {
+            self.error = "Voice AI not initialized. Please check your API key."
             throw VoiceAIError.notInitialized
         }
         
@@ -364,13 +441,30 @@ class VoiceAIManager: ObservableObject {
     }
     
     func startHandlingVoice() async throws {
+        // Ensure conversation is initialized
+        if conversation == nil {
+            print("⏳ Waiting for conversation initialization...")
+            // Wait for initialization to complete
+            for _ in 1...50 { // 5 seconds max
+                if conversation != nil {
+                    print("✅ Conversation initialized")
+                    break
+                }
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            }
+        }
+        
         guard let conversation = self.conversation else {
+            self.error = "Voice AI not initialized. Please check your API key configuration."
             throw VoiceAIError.notInitialized
         }
         
         do {
             try conversation.startHandlingVoice()
             error = nil
+            
+            // Wait a bit for connection to establish
+            try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
         } catch {
             self.error = "Failed to start handling voice: \(error.localizedDescription)"
             throw error

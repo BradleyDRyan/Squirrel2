@@ -18,6 +18,7 @@ class FirebaseManager: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var currentUser: FirebaseAuth.User?
     @Published var verificationID: String?
+    @Published var openAIKey: String?
     
     private var auth: Auth?
     private var firestore: Firestore?
@@ -59,6 +60,25 @@ class FirebaseManager: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self?.currentUser = user
                     self?.isAuthenticated = user != nil
+                    
+                    // Fetch API key when user is authenticated (including anonymous)
+                    if user != nil {
+                        Task {
+                            await self?.fetchOpenAIKey()
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Sign in anonymously on first launch if no user
+        Task {
+            if auth?.currentUser == nil {
+                do {
+                    try await self.signInAnonymously()
+                    print("✅ Signed in anonymously")
+                } catch {
+                    print("❌ Anonymous sign in failed: \(error)")
                 }
             }
         }
@@ -74,6 +94,16 @@ class FirebaseManager: NSObject, ObservableObject {
         
         // Set language code
         auth.languageCode = Locale.current.language.languageCode?.identifier
+    }
+    
+    // Sign in anonymously
+    func signInAnonymously() async throws {
+        guard let auth = auth else {
+            throw FirebaseError.firebaseNotConfigured
+        }
+        
+        let result = try await auth.signInAnonymously()
+        print("✅ Anonymous auth successful: \(result.user.uid)")
     }
     
     // Send verification code to phone number
@@ -170,6 +200,45 @@ enum FirebaseError: LocalizedError {
             return "Verification ID is missing. Please request a new code."
         case .firebaseNotConfigured:
             return "Firebase is not properly configured. Please restart the app."
+        }
+    }
+}
+
+// MARK: - API Key Management
+extension FirebaseManager {
+    @MainActor
+    func fetchOpenAIKey() async {
+        guard let user = currentUser else {
+            print("❌ No user to fetch API key for")
+            return
+        }
+        
+        do {
+            // Get auth token
+            let token = try await user.getIDToken()
+            
+            // Fetch from backend
+            let url = URL(string: "\(AppConfig.apiBaseURL)/config/openai-key")!
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("❌ Failed to fetch API key - HTTP status: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return
+            }
+            
+            let keyResponse = try JSONDecoder().decode(APIKeyResponse.self, from: data)
+            if let apiKey = keyResponse.apiKey {
+                self.openAIKey = apiKey
+                print("✅ Fetched OpenAI API key from backend (user: \(user.isAnonymous ? "anonymous" : "authenticated"))")
+            } else {
+                print("❌ No API key in response: \(keyResponse.error ?? "unknown error")")
+            }
+        } catch {
+            print("❌ Error fetching API key: \(error)")
         }
     }
 }
