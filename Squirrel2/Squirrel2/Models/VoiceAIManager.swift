@@ -29,7 +29,6 @@ class VoiceAIManager: ObservableObject {
     private var conversationId: String = ""
     private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
     private var observationTasks: [Task<Void, Never>] = [] // Track all observation tasks
-    private var initialPrompt: String? // Store initial prompt from intent detector
     
     var entries: [Item] {
         conversation?.entries ?? []
@@ -40,22 +39,6 @@ class VoiceAIManager: ObservableObject {
         return voiceMessages
     }
     
-    // Set initial prompt from intent detector
-    func setInitialPrompt(_ prompt: String) {
-        self.initialPrompt = prompt
-        print("📝 Initial prompt set: \(prompt)")
-    }
-    
-    // Get initial prompt
-    func getInitialPrompt() -> String? {
-        return initialPrompt
-    }
-    
-    // Clear initial prompt after use
-    func clearInitialPrompt() {
-        initialPrompt = nil
-        print("🧹 Initial prompt cleared")
-    }
     
     private init() {
         // Don't auto-initialize, wait for explicit initialization
@@ -71,8 +54,15 @@ class VoiceAIManager: ObservableObject {
         
         await setupWithExistingKey()
         
-        // Don't pre-connect WebSocket here - audio session not ready at app launch
-        // Connection will happen when voice view opens
+        // Pre-connect WebSocket for instant readiness
+        if conversation != nil && !isConnected {
+            do {
+                try conversation?.startHandlingVoice()
+                print("🔥 WebSocket pre-connected")
+            } catch {
+                print("⚠️ Pre-connection failed, will retry on open")
+            }
+        }
         
         isInitialized = true
     }
@@ -96,16 +86,6 @@ class VoiceAIManager: ObservableObject {
         await setupWithExistingKey()
     }
     
-    // Update instructions based on intent classification
-    private func updateInstructionsForIntent(_ classification: IntentClassifier.Classification) async {
-        // Just log the classification for now
-        // The AI will use its own pattern matching based on the instructions
-        if classification.shouldSpeak {
-            print("🔊 User intent suggests voice response needed")
-        } else {
-            print("🔇 User intent suggests silent execution")
-        }
-    }
     
     // Public method to ensure initialization is complete
     func ensureInitialized() async {
@@ -123,32 +103,25 @@ class VoiceAIManager: ObservableObject {
     }
     
     private func setupWithExistingKey() async {
-        isLoadingKey = true
         error = nil
         
         // Use the API key from FirebaseManager (should already be fetched on app start)
         if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
             apiKey = key
-            print("✅ Using API key from FirebaseManager")
             setupConversation()
         } else {
-            // Key should be available, but wait briefly in case of race condition
-            print("⏳ API key not immediately available, waiting briefly...")
-            
-            // Brief wait for API key
-            for _ in 1...5 {
+            // Wait briefly for API key
+            for _ in 1...3 {
                 if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
                     apiKey = key
-                    print("✅ API key now available")
                     setupConversation()
                     break
                 }
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+                try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 second
             }
             
             if apiKey.isEmpty {
-                self.error = "OpenAI API key not available. Please check backend configuration."
-                print("❌ API key not available - this shouldn't happen if ContentView waits properly")
+                self.error = "OpenAI API key not available"
             }
         }
         
@@ -180,19 +153,8 @@ class VoiceAIManager: ObservableObject {
                 try await conversation.updateSession { @MainActor session in
                     // Build conversation context from chat history
                     var contextInstructions = """
-                    YOU ARE AN INTELLIGENT ASSISTANT with TWO MODES:
-                    
-                    MODE 1 - SILENT EXECUTION (for commands/tasks):
-                    - Execute tools silently
-                    - No verbal confirmations
-                    - Just complete the action
-                    
-                    MODE 2 - CONVERSATIONAL (for questions):
-                    - Answer questions naturally
-                    - Provide helpful information
-                    - Be conversational and friendly
-                    
-                    The system will tell you which mode to use based on user input classification.
+                    You are a helpful assistant. Be concise and natural.
+                    When users ask you to create tasks or reminders, do so efficiently.
                     """
                     
                     if !self.chatHistory.isEmpty {
@@ -202,30 +164,6 @@ class VoiceAIManager: ObservableObject {
                             contextInstructions += "\(role): \(msg.content)\n"
                         }
                         contextInstructions += "\nContinue the conversation naturally based on this context."
-                    } else {
-                        contextInstructions += """
-                        
-                        SMART RESPONSE SYSTEM:
-                        
-                        FOR COMMANDS (remind me, create task, add to list, etc):
-                        - Execute tool SILENTLY
-                        - NO audio response
-                        - NO confirmations
-                        
-                        FOR QUESTIONS (what, when, how, did that work, etc):
-                        - Generate helpful audio response
-                        - Be conversational
-                        
-                        Pattern matching:
-                        - "Remind me..." → SILENT tool execution
-                        - "Create a task..." → SILENT tool execution  
-                        - "Add ... to my list" → SILENT tool execution
-                        - "What's on my list?" → AUDIO response with info
-                        - "Did that work?" → AUDIO confirmation
-                        - Anything with "?" → Usually needs AUDIO response
-                        
-                        DEFAULT: If it's a command, stay SILENT. If it's a question, SPEAK.
-                        """
                     }
                     
                     session.instructions = contextInstructions
@@ -246,11 +184,6 @@ class VoiceAIManager: ObservableObject {
                     session.temperature = 0.6
                     
                     print("✅ Session configured with \(session.tools.count) tools")
-                    
-                    // Log the tools for debugging
-                    for tool in session.tools {
-                        print("   📌 Tool: \(tool.name)")
-                    }
                 }
             }
         } catch {
@@ -396,16 +329,6 @@ class VoiceAIManager: ObservableObject {
                         }
                     }.joined(separator: " ")
                     
-                    // Classify the user's intent
-                    if !currentTranscript.isEmpty {
-                        let classification = IntentClassifier.classifyIntent(currentTranscript)
-                        print("🎯 Intent: \(classification.intent) (confidence: \(classification.confidence))")
-                        
-                        // Update session instructions based on classification
-                        Task {
-                            await updateInstructionsForIntent(classification)
-                        }
-                    }
                 }
                 
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -450,25 +373,11 @@ class VoiceAIManager: ObservableObject {
         var processedFunctionCalls = Set<String>()
         
         // Monitor conversation entries for function call items
-        print("🔍 Starting function call monitoring...")
         var lastEntryCount = 0
         while !Task.isCancelled {
-            // Log new entries
+            // Track new entries
             if conversation.entries.count != lastEntryCount {
-                print("📊 Entries count changed: \(lastEntryCount) → \(conversation.entries.count)")
                 lastEntryCount = conversation.entries.count
-                
-                // Log entry types
-                for entry in conversation.entries {
-                    switch entry {
-                    case .message(let msg):
-                        print("   💬 Message: role=\(msg.role)")
-                    case .functionCall(let fc):
-                        print("   🔧 Function call: \(fc.name)")
-                    case .functionCallOutput(let fco):
-                        print("   📤 Function output: \(fco.callId)")
-                    }
-                }
             }
             
             // Check ALL entries (not just new ones) to catch updated arguments
@@ -571,21 +480,8 @@ class VoiceAIManager: ObservableObject {
     }
     
     func startListening() async throws {
-        // Ensure conversation is initialized
-        if conversation == nil {
-            print("⏳ Conversation not ready, waiting...")
-            // Wait for initialization
-            for _ in 1...30 {
-                if conversation != nil && isConnected {
-                    print("✅ Conversation ready")
-                    break
-                }
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-            }
-        }
-        
         guard let conversation = self.conversation else {
-            self.error = "Voice AI not initialized. Please check your API key."
+            self.error = "Voice AI not initialized"
             throw VoiceAIError.notInitialized
         }
         
@@ -606,11 +502,9 @@ class VoiceAIManager: ObservableObject {
     func startHandlingVoice() async throws {
         // Ensure conversation is initialized
         if conversation == nil {
-            print("⏳ Waiting for conversation initialization...")
-            // Wait for initialization to complete
-            for _ in 1...50 { // 5 seconds max
+            // Quick wait for initialization
+            for _ in 1...10 { // 1 second max
                 if conversation != nil {
-                    print("✅ Conversation initialized")
                     break
                 }
                 try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
@@ -618,18 +512,15 @@ class VoiceAIManager: ObservableObject {
         }
         
         guard let conversation = self.conversation else {
-            self.error = "Voice AI not initialized. Please check your API key configuration."
+            self.error = "Voice AI not initialized"
             throw VoiceAIError.notInitialized
         }
         
         do {
             try conversation.startHandlingVoice()
             error = nil
-            
-            // Wait a bit for connection to establish
-            try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
         } catch {
-            self.error = "Failed to start handling voice: \(error.localizedDescription)"
+            self.error = "Failed to start voice: \(error.localizedDescription)"
             throw error
         }
     }

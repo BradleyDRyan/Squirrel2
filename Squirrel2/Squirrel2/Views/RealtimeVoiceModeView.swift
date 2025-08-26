@@ -42,35 +42,18 @@ struct RealtimeVoiceModeView: View {
             }
         }
         .onAppear {
-            // Auto-start listening immediately (already connected)
+            // Auto-start listening immediately
             Task {
                 do {
-                    print("🚀 Starting voice mode...")
-                    
-                    // Check if already connected from pre-initialization
+                    // If not connected, connect now
                     if !voiceAI.isConnected {
-                        // Connect if not already connected
                         try await voiceAI.startHandlingVoice()
-                        print("✅ Voice handling started")
-                    } else {
-                        print("✅ Already connected to Realtime API")
                     }
                     
                     // Start listening immediately
                     try await voiceAI.startListening()
                     isRecording = true
-                    
-                    // Send initial prompt if available
-                    if let initialPrompt = voiceAI.getInitialPrompt() {
-                        print("📨 Sending initial prompt: \(initialPrompt)")
-                        try await voiceAI.sendMessage(initialPrompt)
-                        // Clear the initial prompt after sending
-                        voiceAI.clearInitialPrompt()
-                    }
-                    
-                    print("🎙️ Voice mode ready")
                 } catch {
-                    print("❌ Failed to start voice mode: \(error)")
                     voiceAI.error = error.localizedDescription
                     isRecording = false
                 }

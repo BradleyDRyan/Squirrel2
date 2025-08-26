@@ -21,8 +21,6 @@ struct ContentView: View {
     @State private var showingTaskDetail = false
     @State private var selectedTask: UserTask?
     @State private var showingSettings = false
-    @State private var showingIntentDetector = false
-    @State private var showingVoiceMode = false
     @State private var conversationsListener: ListenerRegistration?
     @State private var tasksListener: ListenerRegistration?
     
@@ -171,15 +169,6 @@ struct ContentView: View {
             .background(Color.squirrelBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: {
-                        showingIntentDetector = true
-                    }) {
-                        Image(systemName: "mic.circle")
-                            .foregroundColor(.squirrelPrimary)
-                            .font(.system(size: 20))
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         showingSettings = true
@@ -203,29 +192,22 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(firebaseManager)
         }
-        .fullScreenCover(isPresented: $showingIntentDetector) {
-            WhisperIntentDetectorView()
-        }
-        .fullScreenCover(isPresented: $showingVoiceMode) {
-            RealtimeVoiceModeView()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenVoiceModeWithPrompt"))) { _ in
-            // Add extra delay before opening voice mode to ensure clean transition
-            Task {
-                print("⏳ ContentView: Waiting 1 second before opening voice mode...")
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
-                
-                // Open voice mode after intent detector dismisses
-                await MainActor.run {
-                    showingVoiceMode = true
-                }
-            }
-        }
         .onAppear {
             // Start real-time listeners if authenticated
             if firebaseManager.isAuthenticated {
                 startConversationsListener()
                 startTasksListener()
+            }
+            
+            // Pre-warm VoiceAIManager for faster startup
+            Task {
+                if firebaseManager.openAIKey != nil {
+                    await VoiceAIManager.shared.initialize(
+                        withChatHistory: [],
+                        conversationId: UUID().uuidString
+                    )
+                    print("🔥 VoiceAIManager pre-warmed")
+                }
             }
             
             // Automatically sign in anonymously if not authenticated
