@@ -29,6 +29,7 @@ class VoiceAIManager: ObservableObject {
     private var conversationId: String = ""
     private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
     private var observationTasks: [Task<Void, Never>] = [] // Track all observation tasks
+    private var initialPrompt: String? // Store initial prompt from intent detector
     
     var entries: [Item] {
         conversation?.entries ?? []
@@ -37,6 +38,23 @@ class VoiceAIManager: ObservableObject {
     // Get voice messages as ChatMessages for unified conversation
     func getVoiceMessages() -> [ChatMessage] {
         return voiceMessages
+    }
+    
+    // Set initial prompt from intent detector
+    func setInitialPrompt(_ prompt: String) {
+        self.initialPrompt = prompt
+        print("📝 Initial prompt set: \(prompt)")
+    }
+    
+    // Get initial prompt
+    func getInitialPrompt() -> String? {
+        return initialPrompt
+    }
+    
+    // Clear initial prompt after use
+    func clearInitialPrompt() {
+        initialPrompt = nil
+        print("🧹 Initial prompt cleared")
     }
     
     private init() {

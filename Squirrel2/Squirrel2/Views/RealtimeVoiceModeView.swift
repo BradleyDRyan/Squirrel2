@@ -60,6 +60,14 @@ struct RealtimeVoiceModeView: View {
                     try await voiceAI.startListening()
                     isRecording = true
                     
+                    // Send initial prompt if available
+                    if let initialPrompt = voiceAI.getInitialPrompt() {
+                        print("📨 Sending initial prompt: \(initialPrompt)")
+                        try await voiceAI.sendMessage(initialPrompt)
+                        // Clear the initial prompt after sending
+                        voiceAI.clearInitialPrompt()
+                    }
+                    
                     print("🎙️ Voice mode ready")
                 } catch {
                     print("❌ Failed to start voice mode: \(error)")
