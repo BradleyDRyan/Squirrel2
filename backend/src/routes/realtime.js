@@ -277,6 +277,7 @@ router.post('/function', verifyToken, async (req, res) => {
         
       case 'create_collection':
         // Create a new collection with AI-generated rules
+        console.log('[CREATE_COLLECTION] Starting...');
         const collectionNameToCreate = args.name;
         const collectionDescription = args.description || '';
         
@@ -288,9 +289,11 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
+        console.log(`[CREATE_COLLECTION] Checking if "${collectionNameToCreate}" exists...`);
         // Check if collection already exists
         const existingCollection = await Collection.findByName(userId, collectionNameToCreate);
         if (existingCollection) {
+          console.log(`[CREATE_COLLECTION] Collection already exists: ${existingCollection.id}`);
           result = {
             success: false,
             message: `Collection "${collectionNameToCreate}" already exists`,
@@ -299,9 +302,12 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
+        console.log('[CREATE_COLLECTION] Generating AI rules...');
         // Generate AI rules for the collection
         const rules = await generateCollectionRules(collectionNameToCreate, collectionDescription);
+        console.log('[CREATE_COLLECTION] Generated rules:', JSON.stringify(rules, null, 2));
         
+        console.log('[CREATE_COLLECTION] Creating collection in database...');
         // Create the collection
         const newCollection = await Collection.create({
           userId: userId,
@@ -312,6 +318,7 @@ router.post('/function', verifyToken, async (req, res) => {
           metadata: { source: 'voice' }
         });
         
+        console.log(`[CREATE_COLLECTION] Successfully created collection: ${newCollection.id}`);
         result = {
           success: true,
           collectionId: newCollection.id,
@@ -319,7 +326,6 @@ router.post('/function', verifyToken, async (req, res) => {
           message: `Created collection "${newCollection.name}"`,
           rules: rules
         };
-        console.log(`Created collection "${newCollection.name}" for user ${userId} with rules:`, rules);
         break;
         
       case 'create_entry':
@@ -398,15 +404,27 @@ router.post('/function', verifyToken, async (req, res) => {
           success: false,
           message: `Unknown function: ${name}`
         };
+      }
+    } catch (functionError) {
+      console.error(`[FUNCTION ERROR] Error in ${name}:`, functionError);
+      console.error('Stack trace:', functionError.stack);
+      result = {
+        success: false,
+        error: functionError.message,
+        details: functionError.toString()
+      };
     }
     
+    console.log(`[FUNCTION RESULT] ${name}:`, JSON.stringify(result, null, 2));
     res.json(result);
     
   } catch (error) {
-    console.error('Function execution error:', error);
+    console.error('[FUNCTION] Top-level error:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to execute function' 
+      error: 'Failed to execute function',
+      message: error.message
     });
   }
 });
