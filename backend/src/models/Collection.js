@@ -8,6 +8,13 @@ class Collection {
     this.description = data.description || '';
     this.icon = data.icon || '📝';
     this.color = data.color || '#6366f1';
+    this.rules = data.rules || {
+      // AI-generated rules for what should be saved to this collection
+      keywords: [],
+      patterns: [],
+      examples: [],
+      description: ''
+    };
     this.template = data.template || {
       // Default template structure for entries in this collection
       fields: [],
@@ -39,6 +46,7 @@ class Collection {
       description: collection.description,
       icon: collection.icon,
       color: collection.color,
+      rules: collection.rules,
       template: collection.template,
       settings: collection.settings,
       stats: collection.stats,
@@ -92,6 +100,47 @@ class Collection {
     return collection;
   }
 
+  static async findBestMatch(userId, content) {
+    // Find the best matching collection based on content and rules
+    const collections = await this.findByUserId(userId);
+    
+    // Check for explicit collection reference (e.g., "words to live by: ...")
+    const colonMatch = content.match(/^([^:]+):\s*(.+)$/);
+    if (colonMatch) {
+      const collectionName = colonMatch[1].trim();
+      const matchedCollection = collections.find(col => 
+        col.name.toLowerCase() === collectionName.toLowerCase()
+      );
+      if (matchedCollection) {
+        return {
+          collection: matchedCollection,
+          content: colonMatch[2].trim(), // Return the content after the colon
+          confidence: 1.0
+        };
+      }
+    }
+    
+    // Check collections with rules
+    for (const collection of collections) {
+      if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
+        const contentLower = content.toLowerCase();
+        const matchedKeywords = collection.rules.keywords.filter(keyword => 
+          contentLower.includes(keyword.toLowerCase())
+        );
+        
+        if (matchedKeywords.length > 0) {
+          return {
+            collection,
+            content, // Return original content
+            confidence: matchedKeywords.length / collection.rules.keywords.length
+          };
+        }
+      }
+    }
+    
+    return null;
+  }
+
   static getDefaultIcon(name) {
     // Return contextual emoji based on collection name
     const nameLower = name.toLowerCase();
@@ -140,6 +189,7 @@ class Collection {
         description: this.description,
         icon: this.icon,
         color: this.color,
+        rules: this.rules,
         template: this.template,
         settings: this.settings,
         stats: this.stats,

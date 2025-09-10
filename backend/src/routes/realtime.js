@@ -4,6 +4,7 @@ const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { UserTask, Space, Entry, Collection } = require('../models');
+const { generateCollectionRules } = require('../services/collectionRules');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -70,7 +71,15 @@ router.post('/token', verifyToken, async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview-2024-12-17',
         voice: 'shimmer',
-        instructions: 'You are a helpful assistant. Be concise and natural. When users mention things they want to remember or journal about, use create_entry to save them to appropriate collections. For tasks and todos, use create_task. For journal entries, notes, and things to remember, use create_entry with a suitable collection name.',
+        instructions: `You are a helpful assistant. Be concise and natural.
+        
+When users want to create a collection (e.g., "Create a collection called Words to Live By"), use create_collection.
+
+When users say something in the format "CollectionName: content" (e.g., "Words to live by: choose optimism"), use create_entry with just the full content - the system will automatically detect the collection.
+
+For tasks and todos, use create_task.
+
+For journal entries, notes, and things to remember that don't specify a collection, ask which collection they'd like to save it to, or suggest creating a new one.`,
         input_audio_transcription: {
           model: 'whisper-1'
         },
@@ -104,6 +113,25 @@ router.post('/token', verifyToken, async (req, res) => {
                 }
               },
               required: ['title']
+            }
+          },
+          {
+            type: 'function',
+            name: 'create_collection',
+            description: 'Create a new collection for organizing entries',
+            parameters: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'The name of the collection'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Optional description of what belongs in this collection'
+                }
+              },
+              required: ['name']
             }
           },
           {
@@ -246,21 +274,86 @@ router.post('/function', verifyToken, async (req, res) => {
         }
         break;
         
-      case 'create_entry':
-        // Create an entry in a collection
-        const collectionName = args.collectionName;
-        const entryContent = args.content;
+      case 'create_collection':
+        // Create a new collection with AI-generated rules
+        const collectionNameToCreate = args.name;
+        const collectionDescription = args.description || '';
         
-        if (!collectionName || !entryContent) {
+        if (!collectionNameToCreate) {
           result = {
             success: false,
-            message: 'Collection name and content are required'
+            message: 'Collection name is required'
           };
           break;
         }
         
-        // Find or create the collection
-        const collection = await Collection.findOrCreateByName(userId, collectionName);
+        // Check if collection already exists
+        const existingCollection = await Collection.findByName(userId, collectionNameToCreate);
+        if (existingCollection) {
+          result = {
+            success: false,
+            message: `Collection "${collectionNameToCreate}" already exists`,
+            collectionId: existingCollection.id
+          };
+          break;
+        }
+        
+        // Generate AI rules for the collection
+        const rules = await generateCollectionRules(collectionNameToCreate, collectionDescription);
+        
+        // Create the collection
+        const newCollection = await Collection.create({
+          userId: userId,
+          name: collectionNameToCreate,
+          description: collectionDescription || rules.description,
+          icon: Collection.getDefaultIcon(collectionNameToCreate),
+          rules: rules,
+          metadata: { source: 'voice' }
+        });
+        
+        result = {
+          success: true,
+          collectionId: newCollection.id,
+          collectionName: newCollection.name,
+          message: `Created collection "${newCollection.name}"`,
+          rules: rules
+        };
+        console.log(`Created collection "${newCollection.name}" for user ${userId} with rules:`, rules);
+        break;
+        
+      case 'create_entry':
+        // Create an entry, smartly routing to the right collection
+        let entryContent = args.content;
+        let targetCollection = null;
+        
+        if (!entryContent) {
+          result = {
+            success: false,
+            message: 'Content is required'
+          };
+          break;
+        }
+        
+        // First, check if content matches an existing collection's rules
+        // This handles patterns like "words to live by: choose optimism"
+        const matchResult = await Collection.findBestMatch(userId, entryContent);
+        
+        if (matchResult && matchResult.confidence > 0.3) {
+          // Found a matching collection
+          targetCollection = matchResult.collection;
+          entryContent = matchResult.content; // Use cleaned content (e.g., without "collection_name:" prefix)
+          console.log(`Matched content to collection "${targetCollection.name}" with confidence ${matchResult.confidence}`);
+        } else if (args.collectionName) {
+          // If no match but collection name explicitly provided, find or create it
+          targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
+        } else {
+          // No collection specified and no match found - create a general collection or reject
+          result = {
+            success: false,
+            message: 'Could not determine which collection to save this entry to. Please specify a collection or create one first.'
+          };
+          break;
+        }
         
         // Get or create default space
         const entryDefaultSpace = await Space.findDefaultSpace(userId) || 
@@ -270,7 +363,7 @@ router.post('/function', verifyToken, async (req, res) => {
         // Create the entry
         const entryData = {
           userId: userId,
-          collectionId: collection.id,
+          collectionId: targetCollection.id,
           title: args.title || '',
           content: entryContent,
           type: 'journal',
@@ -278,23 +371,25 @@ router.post('/function', verifyToken, async (req, res) => {
           spaceIds: entrySpaceIds,
           metadata: { 
             source: 'voice',
-            collectionName: collectionName
+            collectionName: targetCollection.name,
+            matchConfidence: matchResult ? matchResult.confidence : 1.0
           }
         };
         
         const entry = await Entry.create(entryData);
         
         // Update collection stats
-        await collection.updateStats();
+        await targetCollection.updateStats();
         
         result = {
           success: true,
           entryId: entry.id,
-          collectionId: collection.id,
-          collectionName: collection.name,
-          message: `Entry created in "${collection.name}" collection`
+          collectionId: targetCollection.id,
+          collectionName: targetCollection.name,
+          message: `Entry saved to "${targetCollection.name}" collection`,
+          wasMatched: !!matchResult
         };
-        console.log(`Created entry ${entry.id} in collection "${collection.name}" for user ${userId}`);
+        console.log(`Created entry ${entry.id} in collection "${targetCollection.name}" for user ${userId}`);
         break;
         
       default:
