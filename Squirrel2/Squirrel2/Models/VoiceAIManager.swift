@@ -8,6 +8,7 @@
 import SwiftUI
 import Combine
 import FirebaseAuth
+import WebRTC
 
 @MainActor
 class VoiceAIManager: ObservableObject {
@@ -22,11 +23,11 @@ class VoiceAIManager: ObservableObject {
     @Published var shouldDismiss = false
     @Published var isInitialized = false
     
-    private var webSocketClient: VoiceWebSocketClient?
-    private var audioManager: VoiceAudioManager?
+    private var webRTCClient: VoiceWebRTCClient?
     private var conversationId: String = ""
     private var cancellables = Set<AnyCancellable>()
-    private var audioDataTask: Task<Void, Never>?
+    private var ephemeralToken: String?
+    private var sessionId: String?
     
     // Get voice messages as ChatMessages for unified conversation
     func getVoiceMessages() -> [ChatMessage] {
@@ -39,21 +40,13 @@ class VoiceAIManager: ObservableObject {
     }
     
     private func setupComponents() {
-        webSocketClient = VoiceWebSocketClient()
-        audioManager = VoiceAudioManager()
+        webRTCClient = VoiceWebRTCClient()
         
-        // Set up audio data callback
-        audioManager?.onAudioData = { [weak self] data in
-            Task { @MainActor [weak self] in
-                try? await self?.webSocketClient?.sendAudio(data)
-            }
-        }
-        
-        // Observe WebSocket messages
-        webSocketClient?.messagePublisher
+        // Observe WebRTC messages
+        webRTCClient?.messagePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] message in
-                self?.handleServerMessage(message)
+                self?.handleRealtimeMessage(message)
             }
             .store(in: &cancellables)
     }
@@ -106,47 +99,46 @@ class VoiceAIManager: ObservableObject {
         error = nil
         
         do {
-            // Get WebSocket URL from backend
-            // Use Firebase Auth to get the current user (works for anonymous users too)
+            // Get ephemeral token from backend
             guard let firebaseUser = Auth.auth().currentUser else {
                 throw VoiceAIError.notAuthenticated
             }
             
             let token = try await firebaseUser.getIDToken()
-            let urlString = "\(AppConfig.apiBaseURL)/realtime/connect"
-            print("📡 Connecting to: \(urlString)")
+            let urlString = "\(AppConfig.apiBaseURL)/realtime/token"
+            print("🔑 Getting ephemeral token from: \(urlString)")
             guard let url = URL(string: urlString) else {
                 throw VoiceAIError.invalidURL
             }
             
             var request = URLRequest(url: url)
-            request.httpMethod = "GET"
+            request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let (data, response) = try await URLSession.shared.data(for: request)
             
             // Check if we got an HTTP error
             if let httpResponse = response as? HTTPURLResponse {
-                print("📡 Realtime connect response status: \(httpResponse.statusCode)")
+                print("🔑 Token response status: \(httpResponse.statusCode)")
                 if httpResponse.statusCode != 200 {
                     let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    print("❌ Token error: \(errorText)")
                     throw VoiceAIError.invalidURL
                 }
             }
             
-            // Debug: Print what we received
-            if let responseText = String(data: data, encoding: .utf8) {
-                print("📡 Realtime connect response: \(responseText)")
-            }
+            // Parse token response
+            let tokenResponse = try JSONDecoder().decode(RealtimeTokenResponse.self, from: data)
+            self.ephemeralToken = tokenResponse.token
+            self.sessionId = tokenResponse.session_id
             
-            let connectResponse = try JSONDecoder().decode(RealtimeConnectResponse.self, from: data)
+            print("✅ Got ephemeral token, session: \(tokenResponse.session_id)")
             
-            // Connect to WebSocket
-            try await webSocketClient?.connect(websocketUrl: connectResponse.websocketUrl)
+            // Connect WebRTC
+            try await webRTCClient?.connect(token: tokenResponse.token, sessionId: tokenResponse.session_id)
             
-            // Configure session after connection
-            await configureSession()
+            isConnected = webRTCClient?.isConnected ?? false
             
         } catch {
             self.error = "Failed to connect: \(error.localizedDescription)"
@@ -155,89 +147,87 @@ class VoiceAIManager: ObservableObject {
     }
     
     private func configureSession() async {
-        guard let webSocketClient = webSocketClient else { return }
-        
-        do {
-            // Send session configuration to backend
-            try await webSocketClient.configureSession(
-                conversationId: conversationId,
-                history: chatHistory,
-                voice: "shimmer"
-            )
-            
-            print("✅ Session configured with backend")
-        } catch {
-            print("❌ Failed to configure session: \(error)")
-            self.error = "Failed to configure session: \(error.localizedDescription)"
-        }
+        // Session is already configured when we get the ephemeral token
+        // The backend sets up voice, tools, and instructions
+        print("✅ Session configured via ephemeral token")
     }
     
-    private func handleServerMessage(_ message: VoiceServerMessage) {
-        switch message.type {
-        case .status:
-            // Connection status is already handled by WebSocketClient
+    private func handleRealtimeMessage(_ message: [String: Any]) {
+        guard let type = message["type"] as? String else { return }
+        
+        switch type {
+        case "response.audio.delta":
+            // Audio is handled automatically by WebRTC
             break
             
-        case .transcript:
-            if let transcript = message.data?["text"] as? String,
-               let isUser = message.data?["isUser"] as? Bool {
-                currentTranscript = transcript
-                
-                // Add transcript as a message
-                let chatMessage = ChatMessage(
-                    content: transcript,
-                    isFromUser: isUser,
-                    conversationId: conversationId,
-                    source: .voice,
-                    voiceTranscript: transcript
-                )
-                messages.append(chatMessage)
+        case "response.audio_transcript.delta":
+            if let delta = message["delta"] as? String {
+                currentTranscript += delta
             }
             
-        case .audio:
-            if let base64Audio = message.data?["audio"] as? String {
-                audioManager?.playAudioData(base64Audio)
-            }
-            
-        case .text:
-            if let text = message.data?["text"] as? String {
-                // Add AI response text
+        case "response.audio_transcript.done":
+            if !currentTranscript.isEmpty {
                 let chatMessage = ChatMessage(
-                    content: text,
+                    content: currentTranscript,
                     isFromUser: false,
                     conversationId: conversationId,
-                    source: .voice
+                    source: .voice,
+                    voiceTranscript: currentTranscript
                 )
                 messages.append(chatMessage)
-                
-                // Check for conversation ending signals
-                let endSignals = ["goodbye", "bye", "done", "that's all", "all set", "you're all set"]
-                if endSignals.contains(where: { text.lowercased().contains($0) }) {
-                    print("🔚 AI signaled end of conversation")
-                    shouldDismiss = true
+                currentTranscript = ""
+            }
+            
+        case "input_audio_buffer.speech_started":
+            isListening = true
+            
+        case "input_audio_buffer.speech_stopped":
+            isListening = false
+            
+        case "input_audio_buffer.committed":
+            // User's speech was committed
+            break
+            
+        case "conversation.item.created":
+            if let item = message["item"] as? [String: Any],
+               let role = item["role"] as? String {
+                if role == "user", let content = item["content"] as? [[String: Any]] {
+                    for contentItem in content {
+                        if contentItem["type"] as? String == "input_audio",
+                           let transcript = contentItem["transcript"] as? String {
+                            let chatMessage = ChatMessage(
+                                content: transcript,
+                                isFromUser: true,
+                                conversationId: conversationId,
+                                source: .voice,
+                                voiceTranscript: transcript
+                            )
+                            messages.append(chatMessage)
+                        }
+                    }
                 }
             }
             
-        case .function:
-            if let functionName = message.data?["name"] as? String,
-               let result = message.data?["result"] as? String {
-                lastFunctionCall = "\(functionName): \(result)"
-                print("✅ Function executed: \(lastFunctionCall ?? "")")
+        case "response.function_call_arguments.done":
+            if let name = message["name"] as? String {
+                lastFunctionCall = "Function called: \(name)"
+                print("📦 Function call: \(name)")
             }
             
-        case .error:
-            if let errorMessage = message.data?["message"] as? String {
+        case "error":
+            if let error = message["error"] as? [String: Any],
+               let errorMessage = error["message"] as? String {
                 self.error = errorMessage
             }
             
-        case .pong:
+        default:
             break
         }
         
-        // Update connection state from WebSocketClient
-        isConnected = webSocketClient?.isConnected ?? false
-        isListening = webSocketClient?.isListening ?? false
+        // Update connection state
+        isConnected = webRTCClient?.isConnected ?? false
     }
+    
     
     // Remove old setupObservers method - it's no longer needed
     private func setupObservers_old() async {
@@ -246,25 +236,15 @@ class VoiceAIManager: ObservableObject {
     // All function handling is now done on the backend
     
     func startListening() async throws {
-        guard audioManager != nil else {
-            self.error = "Audio manager not initialized"
-            throw VoiceAIError.notInitialized
-        }
-        
-        do {
-            try audioManager?.startRecording()
-            error = nil
-        } catch {
-            self.error = "Failed to start listening: \(error.localizedDescription)"
-            throw error
-        }
+        // WebRTC handles audio automatically
+        // Just update state
+        isListening = true
+        error = nil
     }
     
     func stopListening() async {
-        audioManager?.stopRecording()
-        
-        // Commit audio to backend
-        try? await webSocketClient?.commitAudio()
+        // WebRTC handles audio automatically
+        isListening = false
     }
     
     func startHandlingVoice() async throws {
@@ -278,59 +258,57 @@ class VoiceAIManager: ObservableObject {
             throw VoiceAIError.notConnected
         }
         
-        // Start audio streaming
-        audioDataTask = Task {
-            // Audio data is automatically sent via the callback
-        }
-        
+        // WebRTC handles audio automatically
         error = nil
     }
     
     func stopHandlingVoice() async {
-        audioDataTask?.cancel()
-        audioDataTask = nil
-        audioManager?.stopRecording()
-        audioManager?.stopPlayback()
+        // WebRTC handles audio automatically
+        isListening = false
     }
     
     func sendMessage(_ text: String) async throws {
-        guard let webSocketClient = webSocketClient else {
+        guard let webRTCClient = webRTCClient else {
             throw VoiceAIError.notInitialized
         }
         
-        do {
-            try await webSocketClient.sendText(text)
-            
-            // Add to messages
-            let chatMessage = ChatMessage(
-                content: text,
-                isFromUser: true,
-                conversationId: conversationId,
-                source: .voice
-            )
-            messages.append(chatMessage)
-            
-            error = nil
-        } catch {
-            self.error = "Failed to send message: \(error.localizedDescription)"
-            throw error
-        }
+        // Send text message via data channel
+        let message: [String: Any] = [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": text
+                ]]
+            ]
+        ]
+        
+        webRTCClient.sendMessage(message)
+        
+        // Also send response.create to trigger response
+        webRTCClient.sendMessage(["type": "response.create"])
+        
+        // Add to messages
+        let chatMessage = ChatMessage(
+            content: text,
+            isFromUser: true,
+            conversationId: conversationId,
+            source: .voice
+        )
+        messages.append(chatMessage)
+        
+        error = nil
     }
     
     func interrupt() async {
-        try? await webSocketClient?.interrupt()
-        audioManager?.stopPlayback()
+        // Send interrupt command via data channel
+        webRTCClient?.sendMessage(["type": "response.cancel"])
     }
     
     func closeVoiceMode() async {
-        // Stop audio recording and playback
-        audioManager?.stopRecording()
-        audioManager?.stopPlayback()
-        
-        // Cancel audio streaming
-        audioDataTask?.cancel()
-        audioDataTask = nil
-        
+        // WebRTC handles audio cleanup
         isListening = false
         
         // Keep connection alive for potential reuse
@@ -339,11 +317,7 @@ class VoiceAIManager: ObservableObject {
     
     func disconnect() async {
         // Complete teardown - only called when leaving ChatView entirely
-        audioManager?.cleanup()
-        audioDataTask?.cancel()
-        audioDataTask = nil
-        
-        webSocketClient?.disconnect()
+        webRTCClient?.disconnect()
         
         isListening = false
         isConnected = false
@@ -352,6 +326,8 @@ class VoiceAIManager: ObservableObject {
         messages.removeAll()
         currentTranscript = ""
         error = nil
+        ephemeralToken = nil
+        sessionId = nil
         
         print("✅ VoiceAIManager disconnected")
     }
@@ -387,9 +363,11 @@ enum VoiceAIError: LocalizedError {
     }
 }
 
-// Response struct for realtime connection
-struct RealtimeConnectResponse: Codable {
+// Response struct for ephemeral token
+struct RealtimeTokenResponse: Codable {
     let success: Bool
-    let websocketUrl: String
-    let message: String?
+    let token: String
+    let expires_at: Int?
+    let session_id: String
+    let model: String?
 }

@@ -49,8 +49,8 @@ router.post('/session', verifyToken, async (req, res) => {
   }
 });
 
-// Get WebSocket connection info for authenticated users
-router.get('/connect', verifyToken, async (req, res) => {
+// Create ephemeral token for WebRTC connection
+router.post('/token', verifyToken, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your-openai-api-key-here') {
       return res.status(500).json({ 
@@ -58,24 +58,75 @@ router.get('/connect', verifyToken, async (req, res) => {
       });
     }
 
-    // Generate connection token (can be Firebase token or session token)
-    // For simplicity, we'll use the Firebase token directly
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    // Determine WebSocket URL based on environment
-    const protocol = process.env.NODE_ENV === 'production' ? 'wss' : 'ws';
-    const host = req.get('host');
-    const wsUrl = `${protocol}://${host}/api/realtime/ws?token=${token}`;
+    // Create an ephemeral token using OpenAI's REST API
+    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-realtime-preview-2024-12-17',
+        voice: 'shimmer',
+        instructions: 'You are a helpful assistant. Be concise and natural.',
+        input_audio_transcription: {
+          model: 'whisper-1'
+        },
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500
+        },
+        tools: [
+          {
+            type: 'function',
+            name: 'create_task',
+            description: 'Create a new task or reminder',
+            parameters: {
+              type: 'object',
+              properties: {
+                title: {
+                  type: 'string',
+                  description: 'The task title'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Optional task description'
+                },
+                dueDate: {
+                  type: 'string',
+                  description: 'Optional due date in ISO format'
+                }
+              },
+              required: ['title']
+            }
+          }
+        ]
+      })
+    });
 
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('OpenAI API error:', error);
+      return res.status(response.status).json({ 
+        error: 'Failed to create session' 
+      });
+    }
+
+    const data = await response.json();
+    
     res.json({ 
       success: true,
-      websocketUrl: wsUrl,
-      message: 'Use this URL to connect via WebSocket'
+      token: data.client_secret.value,
+      expires_at: data.client_secret.expires_at,
+      session_id: data.id,
+      model: data.model
     });
   } catch (error) {
-    console.error('Connection info error:', error);
+    console.error('Token creation error:', error);
     res.status(500).json({ 
-      error: 'Failed to generate connection info' 
+      error: 'Failed to create ephemeral token' 
     });
   }
 });

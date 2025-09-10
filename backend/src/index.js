@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const http = require('http');
 require('dotenv').config();
 
 const firebaseAdmin = require('./config/firebase');
@@ -76,20 +75,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Create HTTP server
-const server = http.createServer(app);
-
-// Initialize WebSocket server
-const WebSocketServer = require('./websocket-server');
-const wsServer = new WebSocketServer(server);
-
-// Add WebSocket stats endpoint
-app.get('/api/realtime/stats', (req, res) => {
-  res.json(wsServer.getStats());
-});
-
 // Start server
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Squirrel 2.0 Backend running on port ${PORT}`);
-  console.log(`WebSocket server ready at ws://localhost:${PORT}/api/realtime/ws`);
 });
