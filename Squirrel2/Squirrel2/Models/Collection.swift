@@ -28,12 +28,8 @@ struct Collection: Identifiable, Codable {
 struct CollectionRules: Codable {
     let keywords: [String]
     let patterns: [String]
-    let examples: [RuleExample]
+    let examples: [[String: String]]
     let description: String
-}
-
-struct RuleExample: Codable {
-    let entry: String
 }
 
 struct CollectionTemplate: Codable {

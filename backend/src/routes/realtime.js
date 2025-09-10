@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { UserTask, Space, Entry, Collection } = require('../models');
 const { generateCollectionRules } = require('../services/collectionRules');
+const { isContentInteresting, classifyAndRoute, checkExplicitCollection } = require('../services/entryClassifier');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -61,6 +62,11 @@ router.post('/token', verifyToken, async (req, res) => {
       });
     }
 
+    // Fetch user's collections to include in instructions
+    const userId = req.user.uid;
+    const collections = await Collection.findByUserId(userId);
+    const collectionNames = collections.map(c => c.name).join(', ') || 'no collections yet';
+
     // Create an ephemeral token using OpenAI's REST API
     const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
@@ -73,13 +79,22 @@ router.post('/token', verifyToken, async (req, res) => {
         voice: 'shimmer',
         instructions: `You are a helpful assistant. Be concise and natural.
         
-When users want to create a collection (e.g., "Create a collection called Words to Live By"), use create_collection.
+The user has these collections: ${collectionNames}
 
-When users say something in the format "CollectionName: content" (e.g., "Words to live by: choose optimism"), use create_entry with just the full content - the system will automatically detect the collection.
+Be proactive: If the user mentions something that might be save-worthy to a collection, use save_entry to pass it along. The backend will decide if it's truly worth keeping.
+
+Examples of things that might be worth saving:
+- Tips, advice, or lessons learned
+- Interesting facts or insights
+- Personal reflections or meaningful thoughts
+- Recipes, recommendations, or how-tos
+- Goals, plans, or decisions
+
+When users explicitly want to create a collection (e.g., "Create a collection called Words to Live By"), use create_collection.
 
 For tasks and todos, use create_task.
 
-For journal entries, notes, and things to remember that don't specify a collection, ask which collection they'd like to save it to, or suggest creating a new one.`,
+Don't overthink it - when in doubt about whether something is save-worthy, pass it along with save_entry and let the backend decide.`,
         input_audio_transcription: {
           model: 'whisper-1'
         },
@@ -136,8 +151,23 @@ For journal entries, notes, and things to remember that don't specify a collecti
           },
           {
             type: 'function',
+            name: 'save_entry',
+            description: 'Pass along something that might be worth saving to a collection',
+            parameters: {
+              type: 'object',
+              properties: {
+                content: {
+                  type: 'string',
+                  description: 'What the user said that might be worth saving'
+                }
+              },
+              required: ['content']
+            }
+          },
+          {
+            type: 'function',
             name: 'create_entry',
-            description: 'Create a journal entry or note in a collection',
+            description: 'Explicitly create an entry when the user asks to save something specific',
             parameters: {
               type: 'object',
               properties: {
@@ -147,16 +177,7 @@ For journal entries, notes, and things to remember that don't specify a collecti
                 },
                 collectionName: {
                   type: 'string',
-                  description: 'The name of the collection to add this entry to (e.g., "Baking", "Travel", "Ideas")'
-                },
-                title: {
-                  type: 'string',
-                  description: 'Optional title for the entry'
-                },
-                tags: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Optional tags for the entry'
+                  description: 'The name of the collection to add this entry to'
                 }
               },
               required: ['content', 'collectionName']
@@ -328,8 +349,97 @@ router.post('/function', verifyToken, async (req, res) => {
         };
         break;
         
+      case 'save_entry':
+        // Lightweight check - is this potentially interesting?
+        if (!args.content) {
+          result = {
+            success: false,
+            message: 'Content is required'
+          };
+          break;
+        }
+        
+        console.log(`[SAVE_ENTRY] Quick check: "${args.content.substring(0, 100)}..."`);
+        
+        // Get user's collections for context
+        const userCollections = await Collection.findByUserId(userId);
+        const collectionNames = userCollections.map(c => c.name);
+        
+        if (collectionNames.length === 0) {
+          console.log(`[SAVE_ENTRY] User has no collections, skipping`);
+          result = {
+            success: true,
+            message: 'No collections to save to'
+          };
+          break;
+        }
+        
+        // Quick AI check - is this interesting?
+        const quickCheck = await isContentInteresting(args.content, collectionNames);
+        console.log(`[SAVE_ENTRY] Quick check result:`, quickCheck);
+        
+        if (!quickCheck.isInteresting) {
+          console.log(`[SAVE_ENTRY] Not interesting: ${quickCheck.reasoning}`);
+          result = {
+            success: true,
+            filtered: true,
+            message: 'Content not interesting enough'
+          };
+          break;
+        }
+        
+        // Content is interesting - do heavy classification and routing
+        console.log(`[SAVE_ENTRY] Content is interesting, doing heavy classification...`);
+        const classification = await classifyAndRoute(userId, args.content);
+        
+        if (!classification.shouldSave || !classification.collectionId) {
+          console.log(`[SAVE_ENTRY] Heavy classification rejected: ${classification.reasoning}`);
+          result = {
+            success: true,
+            filtered: true,
+            message: 'Content not saved after deeper analysis'
+          };
+          break;
+        }
+        
+        // Get or create default space for the entry
+        const saveEntrySpace = await Space.findDefaultSpace(userId) || 
+                               await Space.createDefaultSpace(userId);
+        const saveEntrySpaceIds = saveEntrySpace ? [saveEntrySpace.id] : [];
+        
+        // Create the entry
+        const savedEntry = await Entry.create({
+          userId: userId,
+          collectionId: classification.collectionId,
+          title: '',
+          content: args.content,
+          type: 'journal',
+          tags: [],
+          spaceIds: saveEntrySpaceIds,
+          metadata: { 
+            source: 'voice',
+            autoSaved: true,
+            confidence: classification.confidence
+          }
+        });
+        
+        // Update collection stats
+        const savedCollection = await Collection.findById(classification.collectionId);
+        if (savedCollection) {
+          await savedCollection.updateStats();
+        }
+        
+        console.log(`[SAVE_ENTRY] Saved entry ${savedEntry.id} to collection ${savedCollection?.name}`);
+        result = {
+          success: true,
+          entryId: savedEntry.id,
+          collectionId: classification.collectionId,
+          message: `Saved to ${savedCollection?.name || 'collection'}`
+        };
+        break;
+        
       case 'create_entry':
-        // Create an entry, smartly routing to the right collection
+        // Explicit save - user specifically asked to save something
         let entryContent = args.content;
         let targetCollection = null;
         
