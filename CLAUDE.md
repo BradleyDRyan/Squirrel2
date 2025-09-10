@@ -72,9 +72,16 @@ See `BACKEND_API_GUIDELINES.md` for full list. Key endpoints:
 
 For backend changes:
 ```bash
-# Deploy backend to Vercel (only if backend changes made)
+# IMPORTANT: Commit and push changes first so Vercel deploys the latest code!
+git add .
+git commit -m "Backend updates"
+git push
+
+# Then deploy to Vercel
 cd backend && vercel --prod
 ```
+
+⚠️ **CRITICAL**: Vercel deploys from the Git repository, not local files. Always commit and push before running `vercel --prod` or your changes won't be deployed!
 
 ## Key Principles
 
