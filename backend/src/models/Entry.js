@@ -4,6 +4,7 @@ class Entry {
   constructor(data = {}) {
     this.id = data.id || null;
     this.userId = data.userId || null;
+    this.collectionId = data.collectionId || null;
     this.spaceIds = data.spaceIds || [];
     this.conversationId = data.conversationId || null;
     this.title = data.title || '';
@@ -27,6 +28,7 @@ class Entry {
     const entry = new Entry(data);
     const docRef = await this.collection().add({
       userId: entry.userId,
+      collectionId: entry.collectionId,
       spaceIds: entry.spaceIds,
       conversationId: entry.conversationId,
       title: entry.title,
@@ -56,6 +58,10 @@ class Entry {
   static async findByUserId(userId, filters = {}) {
     let query = this.collection().where('userId', '==', userId);
     
+    if (filters.collectionId) {
+      query = query.where('collectionId', '==', filters.collectionId);
+    }
+    
     if (filters.spaceId) {
       query = query.where('spaceIds', 'array-contains', filters.spaceId);
     }
@@ -79,6 +85,15 @@ class Entry {
     }
     
     const snapshot = await query.orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map(doc => new Entry({ id: doc.id, ...doc.data() }));
+  }
+
+  static async findByCollection(collectionId) {
+    const snapshot = await this.collection()
+      .where('collectionId', '==', collectionId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
     return snapshot.docs.map(doc => new Entry({ id: doc.id, ...doc.data() }));
   }
 
@@ -106,6 +121,7 @@ class Entry {
       await Entry.collection().doc(this.id).update({
         title: this.title,
         content: this.content,
+        collectionId: this.collectionId,
         spaceIds: this.spaceIds,
         type: this.type,
         mood: this.mood,

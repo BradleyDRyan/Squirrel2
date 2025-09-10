@@ -8,6 +8,7 @@ router.use(verifyToken);
 router.get('/', async (req, res) => {
   try {
     const filters = {
+      collectionId: req.query.collectionId,
       type: req.query.type,
       mood: req.query.mood,
       conversationId: req.query.conversationId,

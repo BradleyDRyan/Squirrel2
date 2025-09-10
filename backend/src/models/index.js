@@ -4,6 +4,7 @@ const UserTask = require('./UserTask');
 const Entry = require('./Entry');
 const Thought = require('./Thought');
 const Space = require('./Space');
+const Collection = require('./Collection');
 
 module.exports = {
   Conversation,
@@ -11,5 +12,6 @@ module.exports = {
   UserTask,
   Entry,
   Thought,
-  Space
+  Space,
+  Collection
 };

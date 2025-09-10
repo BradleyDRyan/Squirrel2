@@ -14,6 +14,7 @@ const conversationRoutes = require('../src/routes/conversations');
 const messageRoutes = require('../src/routes/messages');
 const taskRoutes = require('../src/routes/tasks');
 const entryRoutes = require('../src/routes/entries');
+const collectionRoutes = require('../src/routes/collections');
 const thoughtRoutes = require('../src/routes/thoughts');
 const spaceRoutes = require('../src/routes/spaces');
 const aiRoutes = require('../src/routes/ai');
@@ -54,6 +55,7 @@ app.get('/', (req, res) => {
       messages: '/api/messages',
       tasks: '/api/tasks',
       entries: '/api/entries',
+      collections: '/api/collections',
       thoughts: '/api/thoughts'
     }
   });
@@ -68,6 +70,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/entries', entryRoutes);
+app.use('/api/collections', collectionRoutes);
 app.use('/api/thoughts', thoughtRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);

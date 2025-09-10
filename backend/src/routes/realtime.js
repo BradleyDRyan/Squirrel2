@@ -3,7 +3,7 @@ const router = express.Router();
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
-const { UserTask, Space } = require('../models');
+const { UserTask, Space, Entry, Collection } = require('../models');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -70,7 +70,7 @@ router.post('/token', verifyToken, async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview-2024-12-17',
         voice: 'shimmer',
-        instructions: 'You are a helpful assistant. Be concise and natural.',
+        instructions: 'You are a helpful assistant. Be concise and natural. When users mention things they want to remember or journal about, use create_entry to save them to appropriate collections. For tasks and todos, use create_task. For journal entries, notes, and things to remember, use create_entry with a suitable collection name.',
         input_audio_transcription: {
           model: 'whisper-1'
         },
@@ -104,6 +104,34 @@ router.post('/token', verifyToken, async (req, res) => {
                 }
               },
               required: ['title']
+            }
+          },
+          {
+            type: 'function',
+            name: 'create_entry',
+            description: 'Create a journal entry or note in a collection',
+            parameters: {
+              type: 'object',
+              properties: {
+                content: {
+                  type: 'string',
+                  description: 'The content of the entry'
+                },
+                collectionName: {
+                  type: 'string',
+                  description: 'The name of the collection to add this entry to (e.g., "Baking", "Travel", "Ideas")'
+                },
+                title: {
+                  type: 'string',
+                  description: 'Optional title for the entry'
+                },
+                tags: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Optional tags for the entry'
+                }
+              },
+              required: ['content', 'collectionName']
             }
           }
         ]
@@ -216,6 +244,57 @@ router.post('/function', verifyToken, async (req, res) => {
             message: 'Task ID required'
           };
         }
+        break;
+        
+      case 'create_entry':
+        // Create an entry in a collection
+        const collectionName = args.collectionName;
+        const entryContent = args.content;
+        
+        if (!collectionName || !entryContent) {
+          result = {
+            success: false,
+            message: 'Collection name and content are required'
+          };
+          break;
+        }
+        
+        // Find or create the collection
+        const collection = await Collection.findOrCreateByName(userId, collectionName);
+        
+        // Get or create default space
+        const entryDefaultSpace = await Space.findDefaultSpace(userId) || 
+                                  await Space.createDefaultSpace(userId);
+        const entrySpaceIds = entryDefaultSpace ? [entryDefaultSpace.id] : [];
+        
+        // Create the entry
+        const entryData = {
+          userId: userId,
+          collectionId: collection.id,
+          title: args.title || '',
+          content: entryContent,
+          type: 'journal',
+          tags: args.tags || [],
+          spaceIds: entrySpaceIds,
+          metadata: { 
+            source: 'voice',
+            collectionName: collectionName
+          }
+        };
+        
+        const entry = await Entry.create(entryData);
+        
+        // Update collection stats
+        await collection.updateStats();
+        
+        result = {
+          success: true,
+          entryId: entry.id,
+          collectionId: collection.id,
+          collectionName: collection.name,
+          message: `Entry created in "${collection.name}" collection`
+        };
+        console.log(`Created entry ${entry.id} in collection "${collection.name}" for user ${userId}`);
         break;
         
       default:
