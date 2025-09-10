@@ -209,9 +209,16 @@ class VoiceAIManager: ObservableObject {
             }
             
         case "response.function_call_arguments.done":
-            if let name = message["name"] as? String {
+            if let name = message["name"] as? String,
+               let callId = message["call_id"] as? String,
+               let argumentsString = message["arguments"] as? String {
                 lastFunctionCall = "Function called: \(name)"
-                print("📦 Function call: \(name)")
+                print("📦 Function call: \(name) with args: \(argumentsString)")
+                
+                // Execute function on backend and send result back to OpenAI
+                Task {
+                    await executeFunctionOnBackend(name: name, arguments: argumentsString, callId: callId)
+                }
             }
             
         case "error":
@@ -339,6 +346,70 @@ class VoiceAIManager: ObservableObject {
         // Reconnect if needed
         Task {
             await connectToBackend()
+        }
+    }
+    
+    private func executeFunctionOnBackend(name: String, arguments: String, callId: String) async {
+        do {
+            // Parse arguments
+            guard let argsData = arguments.data(using: .utf8),
+                  let args = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] else {
+                print("Failed to parse function arguments")
+                return
+            }
+            
+            // Get auth token
+            guard let firebaseUser = Auth.auth().currentUser else { return }
+            let token = try await firebaseUser.getIDToken()
+            
+            // Call backend to execute function
+            guard let url = URL(string: "\(AppConfig.apiBaseURL)/realtime/function") else { return }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let body = [
+                "name": name,
+                "arguments": args
+            ] as [String: Any]
+            
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("Function execution failed")
+                return
+            }
+            
+            // Parse result
+            guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("Failed to parse function result")
+                return
+            }
+            
+            // Send result back to OpenAI via data channel
+            let functionOutput: [String: Any] = [
+                "type": "conversation.item.create",
+                "item": [
+                    "type": "function_call_output",
+                    "call_id": callId,
+                    "output": try JSONSerialization.data(withJSONObject: result).base64EncodedString()
+                ]
+            ]
+            
+            webRTCClient?.sendMessage(functionOutput)
+            
+            // Trigger response
+            webRTCClient?.sendMessage(["type": "response.create"])
+            
+            print("✅ Function \(name) executed and result sent back")
+            
+        } catch {
+            print("❌ Function execution error: \(error)")
         }
     }
 }

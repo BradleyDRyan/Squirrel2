@@ -6,9 +6,10 @@
 //
 
 import Foundation
-import WebRTC
 import AVFoundation
 import Combine
+// Note: Add WebRTC package via SPM: https://github.com/stasel/WebRTC
+import WebRTC
 
 @MainActor
 class VoiceWebRTCClient: NSObject, ObservableObject {
@@ -106,7 +107,7 @@ class VoiceWebRTCClient: NSObject, ObservableObject {
                 optionalConstraints: nil
             )
             
-            let offer = try await withCheckedThrowingContinuation { continuation in
+            let offer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RTCSessionDescription, Error>) in
                 pc.offer(for: offerConstraints) { sdp, error in
                     if let error = error {
                         continuation.resume(throwing: error)
@@ -129,11 +130,9 @@ class VoiceWebRTCClient: NSObject, ObservableObject {
                 }
             }
             
-            // Send offer to OpenAI
-            let baseUrl = "https://api.openai.com/v1/realtime/calls"
-            let model = "gpt-4o-realtime-preview-2024-12-17"
-            
-            guard let url = URL(string: "\(baseUrl)?model=\(model)") else {
+            // Send offer to OpenAI using latest API
+            // The model is already configured when we get the ephemeral token
+            guard let url = URL(string: "https://api.openai.com/v1/realtime") else {
                 throw VoiceWebRTCError.invalidURL
             }
             
@@ -145,8 +144,15 @@ class VoiceWebRTCClient: NSObject, ObservableObject {
             
             let (data, response) = try await URLSession.shared.data(for: request)
             
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 201 else {
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw VoiceWebRTCError.sdpExchangeFailed
+            }
+            
+            guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
+                print("SDP exchange failed with status: \(httpResponse.statusCode)")
+                if let errorText = String(data: data, encoding: .utf8) {
+                    print("Error: \(errorText)")
+                }
                 throw VoiceWebRTCError.sdpExchangeFailed
             }
             
@@ -207,7 +213,9 @@ class VoiceWebRTCClient: NSObject, ObservableObject {
     }
     
     deinit {
-        disconnect()
+        Task { @MainActor in
+            disconnect()
+        }
         RTCCleanupSSL()
     }
 }
@@ -282,13 +290,14 @@ extension VoiceWebRTCClient: RTCDataChannelDelegate {
     }
     
     nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
-        guard let data = buffer.data as Data?,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return
-        }
+        guard let data = buffer.data as Data? else { return }
         
-        Task { @MainActor in
-            self.messageSubject.send(json)
+        // Handle both text and binary data
+        if let jsonString = String(data: data, encoding: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            Task { @MainActor in
+                self.messageSubject.send(json)
+            }
         }
     }
 }

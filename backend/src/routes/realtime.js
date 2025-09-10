@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
+const admin = require('firebase-admin');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -78,6 +79,8 @@ router.post('/token', verifyToken, async (req, res) => {
           prefix_padding_ms: 300,
           silence_duration_ms: 500
         },
+        // Tools are defined but OpenAI will call them through the WebRTC data channel
+        // The iOS client needs to intercept function calls and send them to our backend
         tools: [
           {
             type: 'function',
@@ -127,6 +130,106 @@ router.post('/token', verifyToken, async (req, res) => {
     console.error('Token creation error:', error);
     res.status(500).json({ 
       error: 'Failed to create ephemeral token' 
+    });
+  }
+});
+
+// Execute function calls from the client
+router.post('/function', verifyToken, async (req, res) => {
+  try {
+    const { name, arguments: args } = req.body;
+    const userId = req.user.uid;
+    
+    console.log(`Executing function ${name} for user ${userId}`, args);
+    
+    let result = {};
+    
+    switch (name) {
+      case 'create_task':
+        // Create task in Firebase
+        const db = admin.firestore();
+        const taskData = {
+          title: args.title || 'Untitled Task',
+          description: args.description || '',
+          completed: false,
+          userId: userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          source: 'voice',
+          priority: 'medium'
+        };
+        
+        if (args.dueDate) {
+          taskData.dueDate = new Date(args.dueDate);
+        }
+        
+        const taskRef = await db.collection('tasks').add(taskData);
+        result = {
+          success: true,
+          taskId: taskRef.id,
+          message: `Task "${args.title}" created successfully`
+        };
+        break;
+        
+      case 'list_tasks':
+        // List tasks from Firebase
+        const tasksSnapshot = await admin.firestore()
+          .collection('tasks')
+          .where('userId', '==', userId)
+          .where('completed', '==', false)
+          .orderBy('createdAt', 'desc')
+          .limit(10)
+          .get();
+          
+        const tasks = tasksSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        result = {
+          success: true,
+          tasks: tasks,
+          count: tasks.length
+        };
+        break;
+        
+      case 'complete_task':
+        // Mark task as completed
+        if (args.taskId) {
+          await admin.firestore()
+            .collection('tasks')
+            .doc(args.taskId)
+            .update({
+              completed: true,
+              completedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            
+          result = {
+            success: true,
+            message: 'Task marked as completed'
+          };
+        } else {
+          result = {
+            success: false,
+            message: 'Task ID required'
+          };
+        }
+        break;
+        
+      default:
+        result = {
+          success: false,
+          message: `Unknown function: ${name}`
+        };
+    }
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Function execution error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to execute function' 
     });
   }
 });

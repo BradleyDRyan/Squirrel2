@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1C43998B2E71F91A0081EAF1 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 1C43998A2E71F91A0081EAF1 /* WebRTC */; };
 		B851DFEB2E5CCA67007AB122 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B851DFEA2E5CCA67007AB122 /* FirebaseAuth */; };
 		B851DFED2E5CCA67007AB122 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = B851DFEC2E5CCA67007AB122 /* FirebaseCore */; };
 		B851DFEF2E5CCA67007AB122 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = B851DFEE2E5CCA67007AB122 /* FirebaseFirestore */; };
@@ -30,6 +31,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1C43998B2E71F91A0081EAF1 /* WebRTC in Frameworks */,
 				B851DFED2E5CCA67007AB122 /* FirebaseCore in Frameworks */,
 				B851DFF12E5CCA67007AB122 /* FirebaseStorage in Frameworks */,
 				B851DFEB2E5CCA67007AB122 /* FirebaseAuth in Frameworks */,
@@ -80,6 +82,7 @@
 				B851DFEC2E5CCA67007AB122 /* FirebaseCore */,
 				B851DFEE2E5CCA67007AB122 /* FirebaseFirestore */,
 				B851DFF02E5CCA67007AB122 /* FirebaseStorage */,
+				1C43998A2E71F91A0081EAF1 /* WebRTC */,
 			);
 			productName = Squirrel2;
 			productReference = B851DFD62E5CC8CC007AB122 /* Squirrel2.app */;
@@ -111,6 +114,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				B851DFE72E5CC9DE007AB122 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				1C4399892E71F91A0081EAF1 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B851DFD72E5CC8CC007AB122 /* Products */;
@@ -367,6 +371,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		1C4399892E71F91A0081EAF1 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 140.0.0;
+			};
+		};
 		B851DFE72E5CC9DE007AB122 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -378,6 +390,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1C43998A2E71F91A0081EAF1 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1C4399892E71F91A0081EAF1 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
 		B851DFEA2E5CCA67007AB122 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B851DFE72E5CC9DE007AB122 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
