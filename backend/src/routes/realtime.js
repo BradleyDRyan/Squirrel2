@@ -197,11 +197,12 @@ router.post('/function', verifyToken, async (req, res) => {
     const { name, arguments: args } = req.body;
     const userId = req.user.uid;
     
-    console.log(`Executing function ${name} for user ${userId}`, args);
+    console.log(`[FUNCTION] Executing ${name} for user ${userId}`, JSON.stringify(args, null, 2));
     
     let result = {};
     
-    switch (name) {
+    try {
+      switch (name) {
       case 'create_task':
         // Get or create default space (same as tasks.js route)
         let spaceIds = [];
