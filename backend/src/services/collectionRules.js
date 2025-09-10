@@ -1,8 +1,8 @@
-const OpenAI = require('openai');
+const { chatCompletion } = require('./openai');
 
 async function generateCollectionRules(collectionName, description = '') {
   try {
-    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your-openai-api-key-here') {
+    if (!process.env.OPENAI_API_KEY) {
       // Return basic rules if OpenAI is not configured
       return {
         keywords: [collectionName.toLowerCase()],
@@ -11,10 +11,6 @@ async function generateCollectionRules(collectionName, description = '') {
         description: description || `Entries related to ${collectionName}`
       };
     }
-
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
-    });
 
     const prompt = `Generate smart rules for a collection called "${collectionName}".
 ${description ? `Description: ${description}` : ''}
@@ -29,23 +25,19 @@ Be creative and thorough. For example, for "Words to Live By", include keywords 
 
 Return ONLY valid JSON, no markdown or explanation.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a helpful assistant that generates collection rules. Return only valid JSON.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 500
-    });
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant that generates collection rules. Return only valid JSON.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ];
 
-    const rulesText = completion.choices[0].message.content;
+    const response = await chatCompletion(messages, 'gpt-4o-mini');
+    const rulesText = response.content;
     
     // Parse the JSON response
     try {
