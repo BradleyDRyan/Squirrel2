@@ -3,6 +3,7 @@ import Foundation
 struct Entry: Identifiable, Codable {
     let id: String
     let userId: String
+    let collectionId: String?
     var spaceIds: [String]
     let conversationId: String?
     var title: String
@@ -49,7 +50,7 @@ struct Entry: Identifiable, Codable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, userId, spaceIds, conversationId, title, content
+        case id, userId, collectionId, spaceIds, conversationId, title, content
         case type, mood, tags, attachments, location, weather
         case createdAt, updatedAt, metadata
     }
@@ -58,6 +59,7 @@ struct Entry: Identifiable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         userId = try container.decode(String.self, forKey: .userId)
+        collectionId = try container.decodeIfPresent(String.self, forKey: .collectionId)
         spaceIds = try container.decode([String].self, forKey: .spaceIds)
         conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
         title = try container.decode(String.self, forKey: .title)
@@ -70,12 +72,14 @@ struct Entry: Identifiable, Codable {
         weather = try container.decodeIfPresent(Weather.self, forKey: .weather)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
     }
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(userId, forKey: .userId)
+        try container.encodeIfPresent(collectionId, forKey: .collectionId)
         try container.encode(spaceIds, forKey: .spaceIds)
         try container.encodeIfPresent(conversationId, forKey: .conversationId)
         try container.encode(title, forKey: .title)
@@ -88,6 +92,7 @@ struct Entry: Identifiable, Codable {
         try container.encodeIfPresent(weather, forKey: .weather)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(metadata, forKey: .metadata)
     }
     
     var moodEmoji: String? {

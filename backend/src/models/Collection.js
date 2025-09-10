@@ -69,10 +69,18 @@ class Collection {
   static async findByUserId(userId) {
     const snapshot = await this.collection()
       .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
       .get();
     
-    return snapshot.docs.map(doc => new Collection({ id: doc.id, ...doc.data() }));
+    // Sort in memory to avoid index requirement
+    const collections = snapshot.docs.map(doc => new Collection({ id: doc.id, ...doc.data() }));
+    collections.sort((a, b) => {
+      // Handle Firestore timestamps
+      const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+      const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+      return bTime - aTime;
+    });
+    
+    return collections;
   }
 
   static async findByName(userId, name) {

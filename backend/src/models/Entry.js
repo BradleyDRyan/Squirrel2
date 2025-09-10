@@ -91,10 +91,17 @@ class Entry {
   static async findByCollection(collectionId) {
     const snapshot = await this.collection()
       .where('collectionId', '==', collectionId)
-      .orderBy('createdAt', 'desc')
       .get();
     
-    return snapshot.docs.map(doc => new Entry({ id: doc.id, ...doc.data() }));
+    // Sort in memory to avoid index requirement
+    const entries = snapshot.docs.map(doc => new Entry({ id: doc.id, ...doc.data() }));
+    entries.sort((a, b) => {
+      const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+      const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+      return bTime - aTime;
+    });
+    
+    return entries;
   }
 
   static async findByTags(userId, tags) {
