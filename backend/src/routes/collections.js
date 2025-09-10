@@ -9,17 +9,14 @@ router.use(verifyToken);
 // Get all collections for user
 router.get('/', async (req, res) => {
   try {
-    console.log('[Collections GET /] Request from user:', req.user.uid);
     const collections = await Collection.findByUserId(req.user.uid);
-    console.log('[Collections GET /] Found collections:', collections.length);
     
     // Format dates to ISO8601
     const formattedCollections = collections.map(c => formatDatesInObject(c));
     
     res.json(formattedCollections);
   } catch (error) {
-    console.error('[Collections GET /] Error:', error);
-    console.error('[Collections GET /] Error stack:', error.stack);
+    console.error('[Collections GET /] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

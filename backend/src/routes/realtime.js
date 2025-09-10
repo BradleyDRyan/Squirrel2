@@ -218,7 +218,6 @@ router.post('/function', verifyToken, async (req, res) => {
     const { name, arguments: args } = req.body;
     const userId = req.user.uid;
     
-    console.log(`[FUNCTION] Executing ${name} for user ${userId}`, JSON.stringify(args, null, 2));
     
     let result = {};
     
@@ -257,7 +256,6 @@ router.post('/function', verifyToken, async (req, res) => {
           taskId: task.id,
           message: `Task "${args.title}" created successfully`
         };
-        console.log(`Created task ${task.id} for user ${userId} with spaceIds: ${spaceIds}`);
         break;
         
       case 'list_tasks':
@@ -298,7 +296,6 @@ router.post('/function', verifyToken, async (req, res) => {
         
       case 'create_collection':
         // Create a new collection with AI-generated rules
-        console.log('[CREATE_COLLECTION] Starting...');
         const collectionNameToCreate = args.name;
         const collectionDescription = args.description || '';
         
@@ -310,11 +307,9 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        console.log(`[CREATE_COLLECTION] Checking if "${collectionNameToCreate}" exists...`);
         // Check if collection already exists
         const existingCollection = await Collection.findByName(userId, collectionNameToCreate);
         if (existingCollection) {
-          console.log(`[CREATE_COLLECTION] Collection already exists: ${existingCollection.id}`);
           result = {
             success: false,
             message: `Collection "${collectionNameToCreate}" already exists`,
@@ -323,12 +318,9 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        console.log('[CREATE_COLLECTION] Generating AI rules...');
         // Generate AI rules for the collection
         const rules = await generateCollectionRules(collectionNameToCreate, collectionDescription);
-        console.log('[CREATE_COLLECTION] Generated rules:', JSON.stringify(rules, null, 2));
         
-        console.log('[CREATE_COLLECTION] Creating collection in database...');
         // Create the collection
         const newCollection = await Collection.create({
           userId: userId,
@@ -339,7 +331,6 @@ router.post('/function', verifyToken, async (req, res) => {
           metadata: { source: 'voice' }
         });
         
-        console.log(`[CREATE_COLLECTION] Successfully created collection: ${newCollection.id}`);
         result = {
           success: true,
           collectionId: newCollection.id,
@@ -359,14 +350,11 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        console.log(`[SAVE_ENTRY] Quick check: "${args.content.substring(0, 100)}..."`);
-        
         // Get user's collections for context
         const userCollections = await Collection.findByUserId(userId);
         const collectionNames = userCollections.map(c => c.name);
         
         if (collectionNames.length === 0) {
-          console.log(`[SAVE_ENTRY] User has no collections, skipping`);
           result = {
             success: true,
             message: 'No collections to save to'
@@ -376,10 +364,8 @@ router.post('/function', verifyToken, async (req, res) => {
         
         // Quick AI check - is this interesting?
         const quickCheck = await isContentInteresting(args.content, collectionNames);
-        console.log(`[SAVE_ENTRY] Quick check result:`, quickCheck);
         
         if (!quickCheck.isInteresting) {
-          console.log(`[SAVE_ENTRY] Not interesting: ${quickCheck.reasoning}`);
           result = {
             success: true,
             filtered: true,
@@ -389,11 +375,9 @@ router.post('/function', verifyToken, async (req, res) => {
         }
         
         // Content is interesting - do heavy classification and routing
-        console.log(`[SAVE_ENTRY] Content is interesting, doing heavy classification...`);
         const classification = await classifyAndRoute(userId, args.content);
         
         if (!classification.shouldSave || !classification.collectionId) {
-          console.log(`[SAVE_ENTRY] Heavy classification rejected: ${classification.reasoning}`);
           result = {
             success: true,
             filtered: true,
@@ -429,7 +413,6 @@ router.post('/function', verifyToken, async (req, res) => {
           await savedCollection.updateStats();
         }
         
-        console.log(`[SAVE_ENTRY] Saved entry ${savedEntry.id} to collection ${savedCollection?.name}`);
         result = {
           success: true,
           entryId: savedEntry.id,
@@ -459,7 +442,6 @@ router.post('/function', verifyToken, async (req, res) => {
           // Found a matching collection
           targetCollection = matchResult.collection;
           entryContent = matchResult.content; // Use cleaned content (e.g., without "collection_name:" prefix)
-          console.log(`Matched content to collection "${targetCollection.name}" with confidence ${matchResult.confidence}`);
         } else if (args.collectionName) {
           // If no match but collection name explicitly provided, find or create it
           targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
