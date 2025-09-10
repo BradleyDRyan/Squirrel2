@@ -147,7 +147,9 @@ struct CollectionDetailView: View {
                 }
                 
                 let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                decoder.dateDecodingStrategy = .formatted(formatter)
                 let entriesResponse = try decoder.decode([Entry].self, from: data)
                 print("[CollectionDetailView] Decoded \(entriesResponse.count) entries")
                 

@@ -72,7 +72,8 @@ struct Entry: Identifiable, Codable {
         weather = try container.decodeIfPresent(Weather.self, forKey: .weather)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+        // Skip metadata since it can have mixed types
+        metadata = nil
     }
     
     func encode(to encoder: Encoder) throws {
