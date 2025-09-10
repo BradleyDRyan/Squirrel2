@@ -6,63 +6,69 @@
 //
 
 import SwiftUI
-import OpenAIRealtime
 import Combine
+import FirebaseAuth
 
 @MainActor
 class VoiceAIManager: ObservableObject {
     static let shared = VoiceAIManager()
     
-    @Published var conversation: OpenAIRealtime.Conversation?
     @Published var isListening = false
     @Published var isConnected = false
-    @Published var messages: [Item.Message] = []
+    @Published var messages: [ChatMessage] = []
     @Published var currentTranscript = ""
     @Published var error: String?
-    @Published var isLoadingKey = false
     @Published var lastFunctionCall: String?
     @Published var shouldDismiss = false
     @Published var isInitialized = false
     
-    private var apiKey: String = ""
-    private let functionHandler = RealtimeFunctionHandler()
+    private var webSocketClient: VoiceWebSocketClient?
+    private var audioManager: VoiceAudioManager?
     private var conversationId: String = ""
-    private var voiceMessages: [ChatMessage] = [] // Track messages for unified conversation
-    private var observationTasks: [Task<Void, Never>] = [] // Track all observation tasks
-    
-    var entries: [Item] {
-        conversation?.entries ?? []
-    }
+    private var cancellables = Set<AnyCancellable>()
+    private var audioDataTask: Task<Void, Never>?
     
     // Get voice messages as ChatMessages for unified conversation
     func getVoiceMessages() -> [ChatMessage] {
-        return voiceMessages
+        return messages
     }
     
     
     private init() {
-        // Don't auto-initialize, wait for explicit initialization
+        setupComponents()
+    }
+    
+    private func setupComponents() {
+        webSocketClient = VoiceWebSocketClient()
+        audioManager = VoiceAudioManager()
+        
+        // Set up audio data callback
+        audioManager?.onAudioData = { [weak self] data in
+            Task { @MainActor [weak self] in
+                try? await self?.webSocketClient?.sendAudio(data)
+            }
+        }
+        
+        // Observe WebSocket messages
+        webSocketClient?.messagePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] message in
+                self?.handleServerMessage(message)
+            }
+            .store(in: &cancellables)
     }
     
     func initialize(withChatHistory chatMessages: [ChatMessage] = [], conversationId: String) async {
         guard !isInitialized else { return }
         
-        // Store chat history and conversation ID for context
-        self.chatHistory = chatMessages
         self.conversationId = conversationId
-        self.voiceMessages = [] // Clear any previous voice messages
+        self.messages = [] // Clear any previous messages
         
-        await setupWithExistingKey()
+        // Store chat history for context
+        self.chatHistory = chatMessages
         
-        // Pre-connect WebSocket for instant readiness
-        if conversation != nil && !isConnected {
-            do {
-                try conversation?.startHandlingVoice()
-                print("🔥 WebSocket pre-connected")
-            } catch {
-                print("⚠️ Pre-connection failed, will retry on open")
-            }
-        }
+        // Connect to backend WebSocket
+        await connectToBackend()
         
         isInitialized = true
     }
@@ -76,417 +82,173 @@ class VoiceAIManager: ObservableObject {
         }
         
         // If already connected, update the session with new context
-        if conversation != nil && isConnected {
+        if isConnected {
             await configureSession()
         }
     }
     
-    private func initializeAsync() async {
-        // API key should already be available from FirebaseManager
-        await setupWithExistingKey()
-    }
-    
-    
     // Public method to ensure initialization is complete
     func ensureInitialized() async {
-        if conversation == nil {
-            await initializeAsync()
+        if !isConnected {
+            await connectToBackend()
         }
         
-        // Wait for conversation to be ready
+        // Wait for connection to be ready
         for _ in 1...30 {
-            if conversation != nil {
+            if isConnected {
                 return
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
     
-    private func setupWithExistingKey() async {
+    private func connectToBackend() async {
         error = nil
         
-        // Use the API key from FirebaseManager (should already be fetched on app start)
-        if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
-            apiKey = key
-            setupConversation()
-        } else {
-            // Wait briefly for API key
-            for _ in 1...3 {
-                if let key = FirebaseManager.shared.openAIKey, !key.isEmpty {
-                    apiKey = key
-                    setupConversation()
-                    break
-                }
-                try? await Task.sleep(nanoseconds: 50_000_000) // 0.05 second
+        do {
+            // Get WebSocket URL from backend
+            // Use Firebase Auth to get the current user (works for anonymous users too)
+            guard let firebaseUser = Auth.auth().currentUser else {
+                throw VoiceAIError.notAuthenticated
             }
             
-            if apiKey.isEmpty {
-                self.error = "OpenAI API key not available"
+            let token = try await firebaseUser.getIDToken()
+            guard let url = URL(string: "\(AppConfig.apiBaseURL)/realtime/connect") else {
+                throw VoiceAIError.invalidURL
             }
-        }
-        
-        isLoadingKey = false
-    }
-    
-    private func setupConversation() {
-        guard !apiKey.isEmpty else {
-            error = "OpenAI API key not available"
-            return
-        }
-        
-        conversation = OpenAIRealtime.Conversation(authToken: apiKey)
-        
-        // Configure the session with tools/functions
-        Task {
+            
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            // Check if we got an HTTP error
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 Realtime connect response status: \(httpResponse.statusCode)")
+                if httpResponse.statusCode != 200 {
+                    let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    throw VoiceAIError.invalidURL
+                }
+            }
+            
+            // Debug: Print what we received
+            if let responseText = String(data: data, encoding: .utf8) {
+                print("📡 Realtime connect response: \(responseText)")
+            }
+            
+            let connectResponse = try JSONDecoder().decode(RealtimeConnectResponse.self, from: data)
+            
+            // Connect to WebSocket
+            try await webSocketClient?.connect(websocketUrl: connectResponse.websocketUrl)
+            
+            // Configure session after connection
             await configureSession()
-            await setupObservers()
+            
+        } catch {
+            self.error = "Failed to connect: \(error.localizedDescription)"
+            print("❌ Connection failed: \(error)")
         }
     }
     
     private func configureSession() async {
-        guard let conversation = conversation else { return }
+        guard let webSocketClient = webSocketClient else { return }
         
         do {
-            try await conversation.whenConnected { @MainActor in
-                print("📤 Configuring session with tools...")
-                
-                try await conversation.updateSession { @MainActor session in
-                    // Build conversation context from chat history
-                    var contextInstructions = """
-                    You are a helpful assistant. Be concise and natural.
-                    When users ask you to create tasks or reminders, do so efficiently.
-                    """
-                    
-                    if !self.chatHistory.isEmpty {
-                        contextInstructions += "\n\nPrevious conversation context:\n"
-                        for msg in self.chatHistory.suffix(10) { // Last 10 messages for context
-                            let role = msg.isFromUser ? "User" : "Assistant"
-                            contextInstructions += "\(role): \(msg.content)\n"
-                        }
-                        contextInstructions += "\nContinue the conversation naturally based on this context."
-                    }
-                    
-                    session.instructions = contextInstructions
-                    
-                    // Set voice - shimmer is smoother and more natural
-                    session.voice = .shimmer
-                    
-                    // Enable input audio transcription
-                    session.inputAudioTranscription = Session.InputAudioTranscription()
-                    
-                    // Configure tools from RealtimeFunctions
-                    session.tools = RealtimeFunctions.createSessionTools()
-                    
-                    // Set tool choice to auto
-                    session.toolChoice = .auto
-                    
-                    // Set temperature to minimum allowed value
-                    session.temperature = 0.6
-                    
-                    print("✅ Session configured with \(session.tools.count) tools")
-                }
-            }
+            // Send session configuration to backend
+            try await webSocketClient.configureSession(
+                conversationId: conversationId,
+                history: chatHistory,
+                voice: "shimmer"
+            )
+            
+            print("✅ Session configured with backend")
         } catch {
             print("❌ Failed to configure session: \(error)")
             self.error = "Failed to configure session: \(error.localizedDescription)"
         }
     }
     
-    private func setupObservers() async {
-        guard conversation != nil else { return }
-        
-        // Cancel any existing observation tasks
-        cancelObservationTasks()
-        
-        // Wait for connection
-        let connectionTask = Task { [weak self] in
-            guard let self = self, let conversation = self.conversation else { return }
-            await conversation.waitForConnection()
-            self.isConnected = conversation.connected
-        }
-        observationTasks.append(connectionTask)
-        
-        // Observe errors
-        let errorTask = Task { [weak self] in
-            guard let self = self, let conversation = self.conversation else { return }
-            for await error in conversation.errors {
-                if Task.isCancelled { break }
-                // Ignore temperature validation errors since 0.2 works despite the warning
-                if error.message.lowercased().contains("temperature") || 
-                   error.message.contains("0.6") {
-                    print("⚠️ Ignoring temperature validation error: \(error.message)")
-                    continue
-                }
-                self.error = error.message
-            }
-        }
-        observationTasks.append(errorTask)
-        
-        // Observe function calls
-        let functionTask = Task {
-            await observeFunctionCalls()
-        }
-        observationTasks.append(functionTask)
-        
-        // Start observing conversation state
-        let stateTask = Task { [weak self] in
-            guard let self = self else { return }
-            while !Task.isCancelled {
-                guard let conversation = self.conversation else {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    continue
-                }
-                self.isListening = conversation.isListening
-                self.isConnected = conversation.connected
-                
-                // Update messages (including any user messages even without assistant responses)
-                self.messages = conversation.entries.compactMap { entry in
-                    switch entry {
-                    case let .message(message):
-                        return message
-                    default:
-                        return nil
-                    }
-                }
-                
-                // Also check if we have function calls without messages (tool-only interactions)
-                let hasFunctionCalls = conversation.entries.contains { entry in
-                    if case .functionCall = entry {
-                        return true
-                    }
-                    return false
-                }
-                
-                // Convert to ChatMessages for unified conversation
-                // Make sure to capture user messages even when assistant doesn't respond
-                self.voiceMessages = self.messages.map { message in
-                    // Debug log to see what messages we're getting
-                    if message.role == .user {
-                        print("📝 User voice message found: \(message.content)")
-                    }
-                    
-                    let content = message.content.compactMap { content in
-                        switch content {
-                        case .text(let text):
-                            return text
-                        case .audio(let audio):
-                            return audio.transcript
-                        case .input_text(let text):
-                            return text
-                        case .input_audio(let audio):
-                            // User's voice input transcript
-                            return audio.transcript
-                        }
-                    }.joined(separator: " ")
-                    
-                    return ChatMessage(
-                        content: content,
-                        isFromUser: message.role == .user,
-                        conversationId: self.conversationId,
-                        source: .voice,
-                        voiceTranscript: content
-                    )
-                }
-                
-                // Check if AI said goodbye/done (only relevant for one-shot commands)
-                // Count user messages to determine if it's a one-shot
-                let userMessageCount = self.messages.filter { $0.role == .user }.count
-                
-                if userMessageCount == 1, // Only one user message (one-shot)
-                   let lastMessage = self.messages.last,
-                   lastMessage.role == .assistant {
-                    let content = lastMessage.content.compactMap { content in
-                        switch content {
-                        case .text(let text):
-                            return text.lowercased()
-                        case .audio(let audio):
-                            return audio.transcript?.lowercased()
-                        default:
-                            return nil
-                        }
-                    }.joined(separator: " ")
-                    
-                    // Check for conversation ending signals
-                    let endSignals = ["goodbye", "bye", "done", "that's all", "all set", "you're all set"]
-                    if endSignals.contains(where: { content.contains($0) }) {
-                        print("🔚 One-shot command completed, AI signaled end")
-                        self.shouldDismiss = true
-                    }
-                }
-                
-                // Update transcript from latest user message
-                if let lastUserMessage = messages.last(where: { $0.role == .user }) {
-                    currentTranscript = lastUserMessage.content.compactMap { content in
-                        switch content {
-                        case .input_text(let text):
-                            return text
-                        case .text(let text):
-                            return text
-                        case .input_audio(let audio):
-                            return audio.transcript
-                        default:
-                            return nil
-                        }
-                    }.joined(separator: " ")
-                    
-                }
-                
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-            }
-        }
-        observationTasks.append(stateTask)
-    }
-    
-    private func sendToolsConfiguration() async {
-        guard conversation != nil else { return }
-        
-        // Create the session.update event with tools
-        let sessionUpdate: [String: Any] = [
-            "type": "session.update",
-            "session": [
-                "tools": RealtimeFunctions.availableFunctionsJSON
-            ]
-        ]
-        
-        // Send the tools configuration
-        if let jsonData = try? JSONSerialization.data(withJSONObject: sessionUpdate),
-           let _ = String(data: jsonData, encoding: .utf8) {
-            print("📤 Sending tools configuration to Realtime API")
-            print("📋 Tools: \(RealtimeFunctions.availableFunctionsJSON.count) functions")
+    private func handleServerMessage(_ message: VoiceServerMessage) {
+        switch message.type {
+        case .status:
+            // Connection status is already handled by WebSocketClient
+            break
             
-            // The conversation object should have a way to send raw messages
-            // For now, we'll rely on the instructions to guide the model
-            // If the library exposes a send method, we can use it here
-        }
-    }
-    
-    private func observeFunctionCalls() async {
-        guard let conversation = conversation else { return }
-        
-        enum FunctionCallState {
-            case pending    // Arguments still streaming
-            case ready      // Arguments complete, ready to process
-            case processed  // Already handled
-        }
-        
-        var functionCallStates: [String: FunctionCallState] = [:]
-        var processedFunctionCalls = Set<String>()
-        
-        // Monitor conversation entries for function call items
-        var lastEntryCount = 0
-        while !Task.isCancelled {
-            // Track new entries
-            if conversation.entries.count != lastEntryCount {
-                lastEntryCount = conversation.entries.count
+        case .transcript:
+            if let transcript = message.data?["text"] as? String,
+               let isUser = message.data?["isUser"] as? Bool {
+                currentTranscript = transcript
+                
+                // Add transcript as a message
+                let chatMessage = ChatMessage(
+                    content: transcript,
+                    isFromUser: isUser,
+                    conversationId: conversationId,
+                    source: .voice,
+                    voiceTranscript: transcript
+                )
+                messages.append(chatMessage)
             }
             
-            // Check ALL entries (not just new ones) to catch updated arguments
-            for entry in conversation.entries {
-                if case let .functionCall(functionCall) = entry {
-                    let currentState = functionCallStates[functionCall.id] ?? .pending
-                    
-                    switch currentState {
-                    case .pending:
-                        // Check if arguments are complete (valid JSON)
-                        if !functionCall.arguments.isEmpty && isValidJSON(functionCall.arguments) {
-                            // Arguments are complete and valid!
-                            functionCallStates[functionCall.id] = .ready
-                            print("✅ Function call ready with complete arguments: \(functionCall.name)")
-                            print("📝 Final arguments: \(functionCall.arguments)")
-                        } else {
-                            // Still streaming or invalid
-                            print("⏳ Function call pending: \(functionCall.name) - Args length: \(functionCall.arguments.count)")
-                        }
-                        
-                    case .ready:
-                        // Ready to process
-                        if !processedFunctionCalls.contains(functionCall.id) {
-                            processedFunctionCalls.insert(functionCall.id)
-                            functionCallStates[functionCall.id] = .processed
-                            
-                            print("🚀 Processing function call: \(functionCall.name)")
-                            
-                            // Execute the function with complete arguments
-                            let result = await functionHandler.handleFunctionCall(
-                                name: functionCall.name,
-                                arguments: functionCall.arguments
-                            )
-                            
-                            // Send result back
-                            await sendFunctionResult(callId: functionCall.id, result: result)
-                            lastFunctionCall = "\(functionCall.name): \(result)"
-                            
-                            // Don't auto-close after function execution
-                            // User might want to add more tasks/reminders
-                            print("✅ Function executed successfully, voice mode remains open")
-                        }
-                        
-                    case .processed:
-                        // Already handled, skip
-                        break
-                    }
+        case .audio:
+            if let base64Audio = message.data?["audio"] as? String {
+                audioManager?.playAudioData(base64Audio)
+            }
+            
+        case .text:
+            if let text = message.data?["text"] as? String {
+                // Add AI response text
+                let chatMessage = ChatMessage(
+                    content: text,
+                    isFromUser: false,
+                    conversationId: conversationId,
+                    source: .voice
+                )
+                messages.append(chatMessage)
+                
+                // Check for conversation ending signals
+                let endSignals = ["goodbye", "bye", "done", "that's all", "all set", "you're all set"]
+                if endSignals.contains(where: { text.lowercased().contains($0) }) {
+                    print("🔚 AI signaled end of conversation")
+                    shouldDismiss = true
                 }
             }
-                    
             
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-        }
-    }
-    
-    
-    private func isValidJSON(_ string: String) -> Bool {
-        guard !string.isEmpty,
-              let data = string.data(using: .utf8) else {
-            return false
-        }
-        
-        do {
-            _ = try JSONSerialization.jsonObject(with: data, options: .allowFragments)
-            return true
-        } catch {
-            return false
-        }
-    }
-    
-    func sendFunctionResult(callId: String, result: String) async {
-        guard let conversation = self.conversation else { return }
-        
-        // Send function result back to the conversation
-        let functionOutput: [String: Any] = [
-            "type": "conversation.item.create",
-            "item": [
-                "type": "function_call_output",
-                "call_id": callId,
-                "output": result
-            ]
-        ]
-        
-        if let jsonData = try? JSONSerialization.data(withJSONObject: functionOutput),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            print("📤 Sending function result back to conversation")
-            print("📋 Function result: \(jsonString)")
-            
-            // Send the function result back to the conversation
-            // The library might handle this automatically, but we'll try to send it
-            do {
-                // Try sending the raw JSON as a user message
-                try await conversation.send(from: .user, text: jsonString)
-                print("✅ Sent function result")
-            } catch {
-                print("⚠️ Could not send function result: \(error)")
-                // The library might handle function results automatically
+        case .function:
+            if let functionName = message.data?["name"] as? String,
+               let result = message.data?["result"] as? String {
+                lastFunctionCall = "\(functionName): \(result)"
+                print("✅ Function executed: \(lastFunctionCall ?? "")")
             }
+            
+        case .error:
+            if let errorMessage = message.data?["message"] as? String {
+                self.error = errorMessage
+            }
+            
+        case .pong:
+            break
         }
+        
+        // Update connection state from WebSocketClient
+        isConnected = webSocketClient?.isConnected ?? false
+        isListening = webSocketClient?.isListening ?? false
     }
+    
+    // Remove old setupObservers method - it's no longer needed
+    private func setupObservers_old() async {
+        // This method is removed
+    }
+    // All function handling is now done on the backend
     
     func startListening() async throws {
-        guard let conversation = self.conversation else {
-            self.error = "Voice AI not initialized"
+        guard audioManager != nil else {
+            self.error = "Audio manager not initialized"
             throw VoiceAIError.notInitialized
         }
         
         do {
-            try conversation.startListening()
+            try audioManager?.startRecording()
             error = nil
         } catch {
             self.error = "Failed to start listening: \(error.localizedDescription)"
@@ -495,48 +257,55 @@ class VoiceAIManager: ObservableObject {
     }
     
     func stopListening() async {
-        guard let conversation = self.conversation else { return }
-        conversation.stopListening()
+        audioManager?.stopRecording()
+        
+        // Commit audio to backend
+        try? await webSocketClient?.commitAudio()
     }
     
     func startHandlingVoice() async throws {
-        // Ensure conversation is initialized
-        if conversation == nil {
-            // Quick wait for initialization
-            for _ in 1...10 { // 1 second max
-                if conversation != nil {
-                    break
-                }
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-            }
+        // Ensure connection is ready
+        if !isConnected {
+            await connectToBackend()
         }
         
-        guard let conversation = self.conversation else {
-            self.error = "Voice AI not initialized"
-            throw VoiceAIError.notInitialized
+        guard isConnected else {
+            self.error = "Not connected to server"
+            throw VoiceAIError.notConnected
         }
         
-        do {
-            try conversation.startHandlingVoice()
-            error = nil
-        } catch {
-            self.error = "Failed to start voice: \(error.localizedDescription)"
-            throw error
+        // Start audio streaming
+        audioDataTask = Task {
+            // Audio data is automatically sent via the callback
         }
+        
+        error = nil
     }
     
     func stopHandlingVoice() async {
-        guard let conversation = self.conversation else { return }
-        conversation.stopHandlingVoice()
+        audioDataTask?.cancel()
+        audioDataTask = nil
+        audioManager?.stopRecording()
+        audioManager?.stopPlayback()
     }
     
     func sendMessage(_ text: String) async throws {
-        guard let conversation = self.conversation else {
+        guard let webSocketClient = webSocketClient else {
             throw VoiceAIError.notInitialized
         }
         
         do {
-            try await conversation.send(from: .user, text: text)
+            try await webSocketClient.sendText(text)
+            
+            // Add to messages
+            let chatMessage = ChatMessage(
+                content: text,
+                isFromUser: true,
+                conversationId: conversationId,
+                source: .voice
+            )
+            messages.append(chatMessage)
+            
             error = nil
         } catch {
             self.error = "Failed to send message: \(error.localizedDescription)"
@@ -545,126 +314,38 @@ class VoiceAIManager: ObservableObject {
     }
     
     func interrupt() async {
-        guard let conversation = self.conversation else { return }
-        conversation.interruptSpeech()
-    }
-    
-    private func cancelObservationTasks() {
-        // Cancel all observation tasks
-        for task in observationTasks {
-            task.cancel()
-        }
-        observationTasks.removeAll()
-        print("🛑 Cancelled all observation tasks")
+        try? await webSocketClient?.interrupt()
+        audioManager?.stopPlayback()
     }
     
     func closeVoiceMode() async {
-        // Just stop listening/handling but keep conversation alive for reuse
-        guard let conversation = self.conversation else { return }
-        conversation.stopListening()
-        conversation.stopHandlingVoice()
+        // Stop audio recording and playback
+        audioManager?.stopRecording()
+        audioManager?.stopPlayback()
+        
+        // Cancel audio streaming
+        audioDataTask?.cancel()
+        audioDataTask = nil
+        
         isListening = false
-        isConnected = false
         
-        // Cancel observation tasks to stop the logging
-        cancelObservationTasks()
-        
-        // Wait for any pending user messages to be fully processed
-        // Check if we have a pending user transcript that hasn't been added to messages yet
-        if !currentTranscript.isEmpty {
-            print("⏳ Waiting for user transcript to be added to messages: '\(currentTranscript)'")
-            
-            // Wait up to 1 second for the user message to appear
-            var attempts = 0
-            while attempts < 10 {
-                // Check if the transcript now appears in messages
-                let hasUserMessage = messages.contains { message in
-                    if message.role == .user {
-                        let content = message.content.compactMap { content in
-                            switch content {
-                            case .input_text(let text), .text(let text):
-                                return text
-                            case .input_audio(let audio):
-                                return audio.transcript
-                            default:
-                                return nil
-                            }
-                        }.joined(separator: " ")
-                        
-                        return content.contains(currentTranscript)
-                    }
-                    return false
-                }
-                
-                if hasUserMessage {
-                    print("✅ User message found in conversation")
-                    break
-                }
-                
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                attempts += 1
-            }
-            
-            // If still not found, manually add it
-            if attempts == 10 && !currentTranscript.isEmpty {
-                print("⚠️ User message not found after waiting, adding manually")
-                // Create a manual user message
-                let manualMessage = ChatMessage(
-                    content: currentTranscript,
-                    isFromUser: true,
-                    conversationId: self.conversationId,
-                    source: .voice,
-                    voiceTranscript: currentTranscript
-                )
-                voiceMessages.append(manualMessage)
-            }
-        }
-        
-        // Final update of voice messages from conversation
-        self.voiceMessages = self.messages.map { message in
-            let content = message.content.compactMap { content in
-                switch content {
-                case .text(let text):
-                    return text
-                case .audio(let audio):
-                    return audio.transcript
-                case .input_text(let text):
-                    return text
-                case .input_audio(let audio):
-                    return audio.transcript
-                }
-            }.joined(separator: " ")
-            
-            return ChatMessage(
-                content: content,
-                isFromUser: message.role == .user,
-                conversationId: self.conversationId,
-                source: .voice,
-                voiceTranscript: content
-            )
-        }
-        
-        print("📊 Final voice messages count: \(voiceMessages.count)")
-        // Don't clear conversation or set isInitialized to false
-        // This allows reopening voice mode in the same chat session
+        // Keep connection alive for potential reuse
+        print("📊 Voice mode closed, messages count: \(messages.count)")
     }
     
     func disconnect() async {
         // Complete teardown - only called when leaving ChatView entirely
-        guard let conversation = self.conversation else { return }
+        audioManager?.cleanup()
+        audioDataTask?.cancel()
+        audioDataTask = nil
         
-        // Cancel all observation tasks first
-        cancelObservationTasks()
+        webSocketClient?.disconnect()
         
-        conversation.stopListening()
-        conversation.stopHandlingVoice()
         isListening = false
         isConnected = false
         isInitialized = false
-        // Clear the conversation for next use
-        self.conversation = nil
+        
         messages.removeAll()
-        voiceMessages.removeAll()
         currentTranscript = ""
         error = nil
         
@@ -675,20 +356,36 @@ class VoiceAIManager: ObservableObject {
         messages.removeAll()
         currentTranscript = ""
         error = nil
-        setupConversation()
+        // Reconnect if needed
+        Task {
+            await connectToBackend()
+        }
     }
 }
 
 enum VoiceAIError: LocalizedError {
     case notInitialized
-    case apiKeyMissing
+    case notAuthenticated
+    case notConnected
+    case invalidURL
     
     var errorDescription: String? {
         switch self {
         case .notInitialized:
-            return "Voice AI conversation not initialized"
-        case .apiKeyMissing:
-            return "OpenAI API key is missing"
+            return "Voice AI not initialized"
+        case .notAuthenticated:
+            return "User not authenticated"
+        case .notConnected:
+            return "Not connected to voice server"
+        case .invalidURL:
+            return "Invalid server URL"
         }
     }
+}
+
+// Response struct for realtime connection
+struct RealtimeConnectResponse: Codable {
+    let success: Bool
+    let websocketUrl: String
+    let message: String?
 }

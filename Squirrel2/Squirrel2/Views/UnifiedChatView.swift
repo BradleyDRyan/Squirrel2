@@ -420,11 +420,7 @@ struct VoiceDefaultView: View {
         ZStack {
             backgroundGradient
             
-            if voiceAI.isLoadingKey {
-                loadingView
-            } else {
-                mainContent
-            }
+            mainContent
         }
         .alert("Error", isPresented: $showError) {
             Button("OK") { }
@@ -484,16 +480,6 @@ struct VoiceDefaultView: View {
             endPoint: .bottom
         )
         .ignoresSafeArea()
-    }
-    
-    private var loadingView: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.5)
-            Text("Setting up voice AI...")
-                .font(.squirrelHeadline)
-                .foregroundColor(.squirrelTextSecondary)
-        }
     }
     
     private var mainContent: some View {
@@ -556,17 +542,8 @@ struct VoiceDefaultView: View {
                         .padding(.horizontal, 32)
                 }
                 
-                if let lastAssistantMessage = voiceAI.messages.last(where: { $0.role == .assistant }) {
-                    let content = lastAssistantMessage.content.compactMap { content in
-                        switch content {
-                        case .text(let text):
-                            return text
-                        case .audio(let audio):
-                            return audio.transcript
-                        default:
-                            return nil
-                        }
-                    }.joined(separator: " ")
+                if let lastAssistantMessage = voiceAI.messages.last(where: { !$0.isFromUser }) {
+                    let content = lastAssistantMessage.content
                     
                     if !content.isEmpty {
                         Text(content)
@@ -627,7 +604,7 @@ struct VoiceDefaultView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             
-            if voiceAI.messages.last?.role == .assistant {
+            if voiceAI.messages.last?.isFromUser == false {
                 Button(action: {
                     Task {
                         await voiceAI.interrupt()

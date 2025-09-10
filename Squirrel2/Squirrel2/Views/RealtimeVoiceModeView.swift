@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import OpenAIRealtime
 
 struct RealtimeVoiceModeView: View {
     @StateObject private var voiceAI = VoiceAIManager.shared
@@ -18,11 +17,7 @@ struct RealtimeVoiceModeView: View {
         ZStack {
             backgroundGradient
             
-            if voiceAI.isLoadingKey {
-                loadingView
-            } else {
-                mainContent
-            }
+            mainContent
         }
         .alert("Error", isPresented: $showError) {
             Button("OK") { }
@@ -149,17 +144,8 @@ struct RealtimeVoiceModeView: View {
                     }
                     
                     // Show last AI response (simplified)
-                    if let lastAssistantMessage = voiceAI.messages.last(where: { $0.role == .assistant }) {
-                        let content = lastAssistantMessage.content.compactMap { content in
-                            switch content {
-                            case .text(let text):
-                                return text
-                            case .audio(let audio):
-                                return audio.transcript
-                            default:
-                                return nil
-                            }
-                        }.joined(separator: " ")
+                    if let lastAssistantMessage = voiceAI.messages.last(where: { !$0.isFromUser }) {
+                        let content = lastAssistantMessage.content
                         
                         if !content.isEmpty {
                             Text(content)
@@ -224,7 +210,7 @@ struct RealtimeVoiceModeView: View {
                     .padding(.horizontal)
                 
                 // Interrupt button (only show when AI is speaking)
-                if voiceAI.messages.last?.role == .assistant {
+                if voiceAI.messages.last?.isFromUser == false {
                     Button(action: {
                         Task {
                             await voiceAI.interrupt()

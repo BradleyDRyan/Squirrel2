@@ -6,6 +6,9 @@ const crypto = require('crypto');
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
 
+// Export for use in websocket-server.js
+module.exports.activeSessions = activeSessions;
+
 // Generate a session token for the client
 router.post('/session', verifyToken, async (req, res) => {
   try {
@@ -46,8 +49,8 @@ router.post('/session', verifyToken, async (req, res) => {
   }
 });
 
-// Get API key for authenticated users
-router.get('/key', verifyToken, async (req, res) => {
+// Get WebSocket connection info for authenticated users
+router.get('/connect', verifyToken, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your-openai-api-key-here') {
       return res.status(500).json({ 
@@ -55,15 +58,24 @@ router.get('/key', verifyToken, async (req, res) => {
       });
     }
 
-    // Return the API key for authenticated users
+    // Generate connection token (can be Firebase token or session token)
+    // For simplicity, we'll use the Firebase token directly
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    // Determine WebSocket URL based on environment
+    const protocol = process.env.NODE_ENV === 'production' ? 'wss' : 'ws';
+    const host = req.get('host');
+    const wsUrl = `${protocol}://${host}/api/realtime/ws?token=${token}`;
+
     res.json({ 
       success: true,
-      apiKey: process.env.OPENAI_API_KEY
+      websocketUrl: wsUrl,
+      message: 'Use this URL to connect via WebSocket'
     });
   } catch (error) {
-    console.error('Key retrieval error:', error);
+    console.error('Connection info error:', error);
     res.status(500).json({ 
-      error: 'Failed to retrieve key' 
+      error: 'Failed to generate connection info' 
     });
   }
 });
