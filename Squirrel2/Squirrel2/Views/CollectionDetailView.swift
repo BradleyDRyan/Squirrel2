@@ -5,15 +5,12 @@
 
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore
 
 struct CollectionDetailView: View {
     let collection: Collection
     @State private var entries: [Entry] = []
     @State private var isLoading = true
-    @State private var listener: ListenerRegistration?
-    
-    private let db = Firestore.firestore()
+    @State private var refreshTimer: Timer?
     
     var body: some View {
         ScrollView {
@@ -93,39 +90,79 @@ struct CollectionDetailView: View {
         .navigationBarTitleDisplayMode(.large)
         .onAppear {
             loadEntries()
+            // Set up periodic refresh
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+                loadEntries()
+            }
         }
         .onDisappear {
-            listener?.remove()
+            refreshTimer?.invalidate()
+            refreshTimer = nil
         }
     }
     
     private func loadEntries() {
-        guard let collectionId = collection.id else { return }
+        guard let user = Auth.auth().currentUser else {
+            print("[CollectionDetailView] No authenticated user")
+            isLoading = false
+            return
+        }
         
-        listener?.remove()
-        
-        listener = db.collection("entries")
-            .whereField("collectionId", isEqualTo: collectionId)
-            .addSnapshotListener { snapshot, error in
-                if let error = error {
-                    print("Error loading entries: \(error)")
+        Task {
+            do {
+                print("[CollectionDetailView] Fetching entries for collection: \(collection.id)")
+                
+                // Get auth token
+                let token = try await user.getIDToken()
+                
+                // Make API request
+                guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections/\(collection.id)/entries") else {
+                    print("[CollectionDetailView] Invalid URL")
                     isLoading = false
                     return
                 }
                 
-                guard let documents = snapshot?.documents else {
-                    isLoading = false
-                    return
+                var request = URLRequest(url: url)
+                request.httpMethod = "GET"
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("[CollectionDetailView] Response status: \(httpResponse.statusCode)")
+                    
+                    if httpResponse.statusCode != 200 {
+                        if let errorString = String(data: data, encoding: .utf8) {
+                            print("[CollectionDetailView] Error response: \(errorString)")
+                        }
+                        isLoading = false
+                        return
+                    }
                 }
                 
-                self.entries = documents.compactMap { doc in
-                    try? doc.data(as: Entry.self)
-                }.sorted { entry1, entry2 in
-                    entry1.createdAt > entry2.createdAt
+                // Debug: Print raw response
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[CollectionDetailView] Raw response: \(jsonString)")
                 }
                 
-                isLoading = false
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let entriesResponse = try decoder.decode([Entry].self, from: data)
+                print("[CollectionDetailView] Decoded \(entriesResponse.count) entries")
+                
+                await MainActor.run {
+                    self.entries = entriesResponse.sorted { $0.createdAt > $1.createdAt }
+                    self.isLoading = false
+                }
+            } catch {
+                print("[CollectionDetailView] Error loading entries: \(error)")
+                print("[CollectionDetailView] Error details: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.isLoading = false
+                }
             }
+        }
     }
 }
 

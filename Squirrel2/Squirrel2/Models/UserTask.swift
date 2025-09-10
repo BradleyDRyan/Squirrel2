@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct UserTask: Identifiable, Codable {
     let id: String
@@ -35,6 +36,24 @@ struct UserTask: Identifiable, Codable {
             case .high: return 1
             case .medium: return 2
             case .low: return 3
+            }
+        }
+        
+        var displayName: String {
+            switch self {
+            case .low: return "Low"
+            case .medium: return "Medium"
+            case .high: return "High"
+            case .urgent: return "Urgent"
+            }
+        }
+        
+        var color: Color {
+            switch self {
+            case .low: return .gray
+            case .medium: return .blue
+            case .high: return .orange
+            case .urgent: return .red
             }
         }
     }

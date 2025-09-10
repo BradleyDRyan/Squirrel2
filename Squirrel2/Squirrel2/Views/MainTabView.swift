@@ -5,6 +5,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 struct MainTabView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
@@ -153,16 +154,23 @@ struct TasksTabView: View {
                 self.tasks = documents.compactMap { document in
                     let data = document.data()
                     guard let title = data["title"] as? String,
-                          let statusString = data["status"] as? String else { return nil }
+                          let statusString = data["status"] as? String,
+                          let userId = data["userId"] as? String else { return nil }
                     
                     return UserTask(
                         id: document.documentID,
+                        userId: userId,
+                        spaceIds: data["spaceIds"] as? [String] ?? [],
+                        conversationId: data["conversationId"] as? String,
                         title: title,
-                        description: data["description"] as? String,
-                        status: TaskStatus(rawValue: statusString) ?? .pending,
-                        priority: TaskPriority(rawValue: data["priority"] as? String ?? "medium") ?? .medium,
+                        description: data["description"] as? String ?? "",
+                        status: UserTask.TaskStatus(rawValue: statusString) ?? .pending,
+                        priority: UserTask.TaskPriority(rawValue: data["priority"] as? String ?? "medium") ?? .medium,
                         dueDate: (data["dueDate"] as? Timestamp)?.dateValue(),
+                        completedAt: (data["completedAt"] as? Timestamp)?.dateValue(),
+                        tags: data["tags"] as? [String] ?? [],
                         createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
+                        updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date(),
                         metadata: data["metadata"] as? [String: String]
                     )
                 }
@@ -182,8 +190,8 @@ struct TaskRow: View {
                         .font(.headline)
                         .foregroundColor(.primary)
                     
-                    if let description = task.description, !description.isEmpty {
-                        Text(description)
+                    if !task.description.isEmpty {
+                        Text(task.description)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(2)
@@ -227,8 +235,8 @@ struct TaskDetailView: View {
                     .font(.title)
                     .fontWeight(.bold)
                 
-                if let description = task.description {
-                    Text(description)
+                if !task.description.isEmpty {
+                    Text(task.description)
                         .font(.body)
                 }
                 

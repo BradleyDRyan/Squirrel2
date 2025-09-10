@@ -67,20 +67,43 @@ class Collection {
   }
 
   static async findByUserId(userId) {
-    const snapshot = await this.collection()
-      .where('userId', '==', userId)
-      .get();
+    console.log('[Collection.findByUserId] Looking for collections for user:', userId);
     
-    // Sort in memory to avoid index requirement
-    const collections = snapshot.docs.map(doc => new Collection({ id: doc.id, ...doc.data() }));
-    collections.sort((a, b) => {
-      // Handle Firestore timestamps
-      const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-      const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-      return bTime - aTime;
-    });
-    
-    return collections;
+    try {
+      const snapshot = await this.collection()
+        .where('userId', '==', userId)
+        .get();
+      
+      console.log('[Collection.findByUserId] Query completed. Found docs:', snapshot.size);
+      
+      if (snapshot.empty) {
+        console.log('[Collection.findByUserId] No collections found for user');
+        return [];
+      }
+      
+      // Sort in memory to avoid index requirement
+      const collections = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log('[Collection.findByUserId] Processing doc:', doc.id, 'with data:', JSON.stringify(data));
+        return new Collection({ id: doc.id, ...data });
+      });
+      
+      collections.sort((a, b) => {
+        // Handle Firestore timestamps
+        const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+        const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+        return bTime - aTime;
+      });
+      
+      console.log('[Collection.findByUserId] Returning', collections.length, 'sorted collections');
+      return collections;
+    } catch (error) {
+      console.error('[Collection.findByUserId] Error:', error);
+      console.error('[Collection.findByUserId] Error details:', error.message);
+      console.error('[Collection.findByUserId] Error code:', error.code);
+      console.error('[Collection.findByUserId] Error stack:', error.stack);
+      throw error;
+    }
   }
 
   static async findByName(userId, name) {

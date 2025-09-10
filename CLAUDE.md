@@ -18,15 +18,23 @@ When implementing any feature that involves data:
 ### Correct Pattern
 ```swift
 // ✅ CORRECT - Use backend API
+// ⚠️ IMPORTANT: AppConfig.apiBaseURL already includes "/api" prefix!
 let token = try await user.getIDToken()
-guard let url = URL(string: "\(AppConfig.apiBaseURL)/endpoint") else { return }
+guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections") else { return }
+// This creates: https://backend-sigma-drab.vercel.app/api/collections
 var request = URLRequest(url: url)
 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 // ... make request
 ```
 
-### Incorrect Pattern
+### Common Mistakes to Avoid
 ```swift
+// ❌ WRONG - This creates /api/api/collections (double /api)
+URL(string: "\(AppConfig.apiBaseURL)/api/collections")
+
+// ✅ CORRECT - apiBaseURL already has /api
+URL(string: "\(AppConfig.apiBaseURL)/collections")
+
 // ❌ NEVER DO THIS - Direct Firestore access
 db.collection("anything").document(id).setData(data)
 ```

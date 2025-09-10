@@ -5,15 +5,14 @@
 
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore
+import Foundation
 
 struct CollectionsView: View {
+    @EnvironmentObject var firebaseManager: FirebaseManager
     @State private var collections: [Collection] = []
     @State private var isLoading = true
     @State private var selectedCollection: Collection?
-    @State private var listener: ListenerRegistration?
-    
-    private let db = Firestore.firestore()
+    @State private var refreshTimer: Timer?
     
     var body: some View {
         NavigationStack {
@@ -59,39 +58,79 @@ struct CollectionsView: View {
         }
         .onAppear {
             loadCollections()
+            // Set up periodic refresh
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+                loadCollections()
+            }
         }
         .onDisappear {
-            listener?.remove()
+            refreshTimer?.invalidate()
+            refreshTimer = nil
         }
     }
     
     private func loadCollections() {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
+        guard let user = Auth.auth().currentUser else {
+            print("[CollectionsView] No authenticated user")
+            isLoading = false
+            return
+        }
         
-        listener?.remove()
-        
-        listener = db.collection("collections")
-            .whereField("userId", isEqualTo: userId)
-            .addSnapshotListener { snapshot, error in
-                if let error = error {
-                    print("Error loading collections: \(error)")
+        Task {
+            do {
+                print("[CollectionsView] Fetching collections for user: \(user.uid)")
+                
+                // Get auth token
+                let token = try await user.getIDToken()
+                
+                // Make API request
+                guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections") else {
+                    print("[CollectionsView] Invalid URL")
                     isLoading = false
                     return
                 }
                 
-                guard let documents = snapshot?.documents else {
-                    isLoading = false
-                    return
+                var request = URLRequest(url: url)
+                request.httpMethod = "GET"
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("[CollectionsView] Response status: \(httpResponse.statusCode)")
+                    
+                    if httpResponse.statusCode != 200 {
+                        if let errorString = String(data: data, encoding: .utf8) {
+                            print("[CollectionsView] Error response: \(errorString)")
+                        }
+                        isLoading = false
+                        return
+                    }
                 }
                 
-                self.collections = documents.compactMap { doc in
-                    try? doc.data(as: Collection.self)
-                }.sorted { collection1, collection2 in
-                    collection1.createdAt > collection2.createdAt
+                // Debug: Print raw response
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[CollectionsView] Raw response: \(jsonString)")
                 }
                 
-                isLoading = false
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let collectionsResponse = try decoder.decode([Collection].self, from: data)
+                print("[CollectionsView] Decoded \(collectionsResponse.count) collections")
+                
+                await MainActor.run {
+                    self.collections = collectionsResponse
+                    self.isLoading = false
+                }
+            } catch {
+                print("[CollectionsView] Error loading collections: \(error)")
+                print("[CollectionsView] Error details: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.isLoading = false
+                }
             }
+        }
     }
 }
 
@@ -141,30 +180,4 @@ struct CollectionCard: View {
     }
 }
 
-// Helper extension for hex colors
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue:  Double(b) / 255,
-            opacity: Double(a) / 255
-        )
-    }
-}
+// Color(hex:) extension is defined in DesignSystem/Colors.swift

@@ -2,15 +2,24 @@ const express = require('express');
 const router = express.Router();
 const { Collection, Entry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
+const { formatDatesInObject } = require('../utils/dateUtils');
 
 router.use(verifyToken);
 
 // Get all collections for user
 router.get('/', async (req, res) => {
   try {
+    console.log('[Collections GET /] Request from user:', req.user.uid);
     const collections = await Collection.findByUserId(req.user.uid);
-    res.json(collections);
+    console.log('[Collections GET /] Found collections:', collections.length);
+    
+    // Format dates to ISO8601
+    const formattedCollections = collections.map(c => formatDatesInObject(c));
+    
+    res.json(formattedCollections);
   } catch (error) {
+    console.error('[Collections GET /] Error:', error);
+    console.error('[Collections GET /] Error stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });
@@ -37,7 +46,9 @@ router.get('/:id/entries', async (req, res) => {
     }
     
     const entries = await Entry.findByCollection(req.params.id);
-    res.json(entries);
+    // Format dates to ISO8601
+    const formattedEntries = entries.map(e => formatDatesInObject(e));
+    res.json(formattedEntries);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

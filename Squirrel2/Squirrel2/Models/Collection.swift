@@ -4,16 +4,17 @@
 //
 
 import Foundation
-import FirebaseFirestore
 
 struct Collection: Identifiable, Codable {
-    @DocumentID var id: String?
+    let id: String
     let userId: String
     let name: String
     let description: String
     let icon: String
     let color: String
     let rules: CollectionRules?
+    let template: CollectionTemplate?
+    let settings: CollectionSettings?
     let stats: CollectionStats
     let createdAt: Date
     let updatedAt: Date
@@ -27,8 +28,23 @@ struct Collection: Identifiable, Codable {
 struct CollectionRules: Codable {
     let keywords: [String]
     let patterns: [String]
-    let examples: [String]
+    let examples: [RuleExample]
     let description: String
+}
+
+struct RuleExample: Codable {
+    let entry: String
+}
+
+struct CollectionTemplate: Codable {
+    let fields: [String]
+    let prompts: [String]
+}
+
+struct CollectionSettings: Codable {
+    let isPublic: Bool
+    let allowComments: Bool
+    let defaultTags: [String]
 }
 
 struct CollectionStats: Codable {
