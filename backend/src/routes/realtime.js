@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
+const { UserTask, Space } = require('../models');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -146,68 +147,69 @@ router.post('/function', verifyToken, async (req, res) => {
     
     switch (name) {
       case 'create_task':
-        // Create task in Firebase
-        const db = admin.firestore();
+        // Get or create default space (same as tasks.js route)
+        let spaceIds = [];
+        
+        const defaultSpace = await Space.findDefaultSpace(userId) || 
+                             await Space.createDefaultSpace(userId);
+        if (defaultSpace) {
+          spaceIds = [defaultSpace.id];
+        }
+        
+        // Create task using UserTask model
         const taskData = {
+          userId: userId,  // Include userId in the data object
           title: args.title || 'Untitled Task',
           description: args.description || '',
-          completed: false,
-          userId: userId,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          priority: args.priority || 'medium',
+          status: 'pending',
           source: 'voice',
-          priority: 'medium'
+          spaceIds: spaceIds,  // Use the default space
+          conversationId: null,  // Can be added if you track voice conversation IDs
+          metadata: { source: 'voice' }
         };
         
         if (args.dueDate) {
-          taskData.dueDate = new Date(args.dueDate);
+          taskData.dueDate = args.dueDate;
         }
         
-        const taskRef = await db.collection('tasks').add(taskData);
+        const task = await UserTask.create(taskData);
         result = {
           success: true,
-          taskId: taskRef.id,
+          taskId: task.id,
           message: `Task "${args.title}" created successfully`
         };
+        console.log(`Created task ${task.id} for user ${userId} with spaceIds: ${spaceIds}`);
         break;
         
       case 'list_tasks':
-        // List tasks from Firebase
-        const tasksSnapshot = await admin.firestore()
-          .collection('tasks')
-          .where('userId', '==', userId)
-          .where('completed', '==', false)
-          .orderBy('createdAt', 'desc')
-          .limit(10)
-          .get();
-          
-        const tasks = tasksSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        // List tasks using UserTask model
+        const tasks = await UserTask.findPending(userId);
         
         result = {
           success: true,
-          tasks: tasks,
+          tasks: tasks.slice(0, 10), // Limit to 10 most recent
           count: tasks.length
         };
         break;
         
       case 'complete_task':
-        // Mark task as completed
+        // Mark task as completed using UserTask model
         if (args.taskId) {
-          await admin.firestore()
-            .collection('tasks')
-            .doc(args.taskId)
-            .update({
-              completed: true,
-              completedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-            
-          result = {
-            success: true,
-            message: 'Task marked as completed'
-          };
+          const taskToComplete = await UserTask.findById(args.taskId);
+          
+          if (taskToComplete && taskToComplete.userId === userId) {
+            await taskToComplete.markComplete();
+            result = {
+              success: true,
+              message: 'Task marked as completed'
+            };
+          } else {
+            result = {
+              success: false,
+              message: 'Task not found or unauthorized'
+            };
+          }
         } else {
           result = {
             success: false,

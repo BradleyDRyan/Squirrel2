@@ -379,9 +379,16 @@ class VoiceAIManager: ObservableObject {
             
             let (data, response) = try await URLSession.shared.data(for: request)
             
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                print("Function execution failed")
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("Function execution failed - no response")
+                return
+            }
+            
+            if httpResponse.statusCode != 200 {
+                print("Function execution failed with status: \(httpResponse.statusCode)")
+                if let errorText = String(data: data, encoding: .utf8) {
+                    print("Error: \(errorText)")
+                }
                 return
             }
             
@@ -391,13 +398,18 @@ class VoiceAIManager: ObservableObject {
                 return
             }
             
+            print("📋 Function result from backend: \(result)")
+            
             // Send result back to OpenAI via data channel
+            // The output should be a JSON string, not base64
+            let outputString = String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8) ?? "{}"
+            
             let functionOutput: [String: Any] = [
                 "type": "conversation.item.create",
                 "item": [
                     "type": "function_call_output",
                     "call_id": callId,
-                    "output": try JSONSerialization.data(withJSONObject: result).base64EncodedString()
+                    "output": outputString
                 ]
             ]
             
