@@ -113,12 +113,16 @@ class VoiceAIManager: ObservableObject {
             }
             
             let token = try await firebaseUser.getIDToken()
-            guard let url = URL(string: "\(AppConfig.apiBaseURL)/realtime/connect") else {
+            let urlString = "\(AppConfig.apiBaseURL)/realtime/connect"
+            print("📡 Connecting to: \(urlString)")
+            guard let url = URL(string: urlString) else {
                 throw VoiceAIError.invalidURL
             }
             
             var request = URLRequest(url: url)
+            request.httpMethod = "GET"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
             
             let (data, response) = try await URLSession.shared.data(for: request)
             

@@ -52,7 +52,7 @@ class RealtimeProxy extends EventEmitter {
     });
   }
 
-  handleOpenAIMessage(data) {
+  async handleOpenAIMessage(data) {
     try {
       const event = JSON.parse(data);
       
