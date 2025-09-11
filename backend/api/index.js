@@ -25,6 +25,9 @@ const photoRoutes = require('../src/routes/photos');
 
 const app = express();
 
+// Trust proxy headers on Vercel
+app.set('trust proxy', true);
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100

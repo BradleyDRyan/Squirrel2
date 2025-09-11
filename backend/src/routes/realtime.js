@@ -349,41 +349,41 @@ router.post('/function', verifyToken, async (req, res) => {
                            await Space.createDefaultSpace(userId);
         const extractSpaceIds = extractSpace ? [extractSpace.id] : [];
         
-        // Call the entries API endpoint which handles collection inference
-        // This delegates all the logic to the proper backend endpoint
+        // Create the entry directly using the Entry model with AI inference
         try {
-          const entryUrl = `${process.env.API_BASE_URL || 'https://backend-sigma-drab.vercel.app/api'}/entries`;
-          const entryResponse = await fetch(entryUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${session.firebaseToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              content: args.content,
-              type: 'journal',
-              spaceIds: extractSpaceIds,
-              enableInference: true,  // Enable AI collection inference
-              metadata: { 
-                source: 'voice',
-                extractedAt: new Date()
-              }
-            })
-          });
+          // Import the inference service
+          const { inferAndSortEntry } = require('../services/collectionInference');
           
-          if (entryResponse.ok) {
-            const data = await entryResponse.json();
-            console.log(`[EXTRACT_ENTRIES] Created entry ${data.entry.id} via API`);
-            
-            result = {
-              success: true,
-              entryId: data.entry.id,
-              message: 'Entry extracted successfully'
-            };
-          } else {
-            const errorText = await entryResponse.text();
-            throw new Error(`API returned ${entryResponse.status}: ${errorText}`);
+          // Create the entry first
+          const entryData = {
+            userId: userId,
+            title: '',
+            content: args.content,
+            type: 'journal',
+            spaceIds: extractSpaceIds,
+            metadata: { 
+              source: 'voice',
+              extractedAt: new Date()
+            }
+          };
+          
+          const entry = await Entry.create(entryData);
+          console.log(`[EXTRACT_ENTRIES] Created entry ${entry.id}`);
+          
+          // Run AI inference to sort into collections
+          try {
+            await inferAndSortEntry(entry.id, userId);
+            console.log(`[EXTRACT_ENTRIES] AI inference completed for entry ${entry.id}`);
+          } catch (inferenceError) {
+            console.error(`[EXTRACT_ENTRIES] AI inference failed:`, inferenceError);
+            // Continue anyway - entry is created even if inference fails
           }
+          
+          result = {
+            success: true,
+            entryId: entry.id,
+            message: 'Entry extracted successfully'
+          };
         } catch (err) {
           console.error('[EXTRACT_ENTRIES] Failed to create entry:', err);
           result = {
