@@ -238,6 +238,77 @@ router.post('/test-inference', async (req, res) => {
   }
 });
 
+// Create collection from voice input
+router.post('/from-voice', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Collection name is required' });
+    }
+    
+    console.log(`[VOICE-COLLECTION] Creating collection from voice: "${name}"`);
+    
+    // Check if collection already exists
+    const existing = await Collection.findByName(req.user.uid, name);
+    if (existing) {
+      console.log(`[VOICE-COLLECTION] Collection "${name}" already exists`);
+      return res.json({
+        success: false,
+        message: `Collection "${name}" already exists`,
+        collection: existing
+      });
+    }
+    
+    // Generate collection details with AI if available
+    let details;
+    try {
+      details = await generateCollectionDetails(name, description);
+    } catch (error) {
+      console.log(`[VOICE-COLLECTION] AI generation failed, using defaults`);
+      // Fallback to basic structure
+      details = {
+        name: name,
+        description: description || `Collection for ${name}`,
+        icon: '📝',
+        color: '#6366f1',
+        rules: {
+          keywords: [name.toLowerCase()],
+          patterns: [],
+          description: `Entries related to ${name}`
+        },
+        entryFormat: null
+      };
+    }
+    
+    // Create the collection
+    const collection = await Collection.create({
+      userId: req.user.uid,
+      name: details.name,
+      description: details.description,
+      icon: details.icon,
+      color: details.color,
+      rules: details.rules,
+      entryFormat: details.entryFormat,
+      metadata: { 
+        source: 'voice',
+        createdAt: new Date()
+      }
+    });
+    
+    console.log(`[VOICE-COLLECTION] Created collection ${collection.id}: "${collection.name}"`);
+    
+    res.status(201).json({
+      success: true,
+      collection: collection,
+      message: `Collection "${collection.name}" created successfully`
+    });
+  } catch (error) {
+    console.error('[VOICE-COLLECTION] Error creating collection:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Delete a collection (only if empty)
 router.delete('/:id', async (req, res) => {
   try {

@@ -210,6 +210,95 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Create entry from voice input (extract_entries)
+router.post('/from-voice', async (req, res) => {
+  try {
+    const { content } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    
+    console.log(`[VOICE-ENTRY] Creating entry from voice: "${content.substring(0, 50)}..."`);
+    
+    // Get or create default space
+    const { Space } = require('../models');
+    const defaultSpace = await Space.findDefaultSpace(req.user.uid) || 
+                         await Space.createDefaultSpace(req.user.uid);
+    const spaceIds = defaultSpace ? [defaultSpace.id] : [];
+    
+    // Create the entry
+    const entryData = {
+      userId: req.user.uid,
+      title: '',
+      content: content,
+      type: 'journal',
+      spaceIds: spaceIds,
+      metadata: { 
+        source: 'voice',
+        extractedAt: new Date()
+      }
+    };
+    
+    const entry = await Entry.create(entryData);
+    console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
+    
+    // Trigger inference independently
+    console.log(`[VOICE-ENTRY] Triggering collection inference for entry ${entry.id}`);
+    
+    const admin = require('firebase-admin');
+    const serviceToken = await admin.auth().createCustomToken(req.user.uid, {
+      service: 'voice-inference',
+      entryId: entry.id
+    });
+    
+    // Fire and forget the inference
+    const https = require('https');
+    const inferenceUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://squirrel2.vercel.app/api/entries/' 
+      : 'http://localhost:3001/api/entries/';
+    
+    const url = new URL(`${inferenceUrl}${entry.id}/infer-collection`);
+    const postData = JSON.stringify({});
+    
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${serviceToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    };
+    
+    const inferenceReq = https.request(options, (inferenceRes) => {
+      let data = '';
+      inferenceRes.on('data', (chunk) => data += chunk);
+      inferenceRes.on('end', () => {
+        console.log(`[VOICE-ENTRY] Inference completed for entry ${entry.id}`);
+      });
+    });
+    
+    inferenceReq.on('error', (error) => {
+      console.error(`[VOICE-ENTRY] Inference request error:`, error.message);
+    });
+    
+    inferenceReq.write(postData);
+    inferenceReq.end();
+    
+    res.status(201).json({
+      success: true,
+      entryId: entry.id,
+      message: `Entry saved successfully`
+    });
+  } catch (error) {
+    console.error('[VOICE-ENTRY] Error creating entry:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Trigger inference for an existing entry
 router.post('/:id/infer-collection', async (req, res) => {
   try {

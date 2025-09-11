@@ -115,4 +115,54 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Create task from voice input
+router.post('/from-voice', async (req, res) => {
+  try {
+    const { title, description, priority, dueDate } = req.body;
+    
+    if (!title) {
+      return res.status(400).json({ error: 'Task title is required' });
+    }
+    
+    console.log(`[VOICE-TASK] Creating task from voice: "${title}"`);
+    
+    // Get or create default space
+    const { Space } = require('../models');
+    const defaultSpace = await Space.findDefaultSpace(req.user.uid) || 
+                         await Space.createDefaultSpace(req.user.uid);
+    const spaceIds = defaultSpace ? [defaultSpace.id] : [];
+    
+    const taskData = {
+      userId: req.user.uid,
+      title: title,
+      description: description || '',
+      priority: priority || 'medium',
+      status: 'pending',
+      source: 'voice',
+      spaceIds: spaceIds,
+      metadata: { 
+        source: 'voice',
+        createdAt: new Date()
+      }
+    };
+    
+    if (dueDate) {
+      taskData.dueDate = new Date(dueDate);
+    }
+    
+    const task = await UserTask.create(taskData);
+    
+    console.log(`[VOICE-TASK] Created task ${task.id}: "${task.title}"`);
+    
+    res.status(201).json({
+      success: true,
+      task: task,
+      message: `Task "${task.title}" created successfully`
+    });
+  } catch (error) {
+    console.error('[VOICE-TASK] Error creating task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
