@@ -100,9 +100,22 @@ const requireVerifiedEmail = async (req, res, next) => {
   next();
 };
 
+// Middleware that allows worker endpoints to bypass auth
+const workerAuth = async (req, res, next) => {
+  // Allow requests from QStash (they have upstash-signature header)
+  if (req.headers['upstash-signature']) {
+    req.user = { uid: 'system-worker', isWorker: true };
+    return next();
+  }
+  
+  // Otherwise fall back to regular auth
+  return verifyToken(req, res, next);
+};
+
 module.exports = { 
   verifyToken, 
   optionalAuth, 
   requireRole,
-  requireVerifiedEmail
+  requireVerifiedEmail,
+  workerAuth
 };

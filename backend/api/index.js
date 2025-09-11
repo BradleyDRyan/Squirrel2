@@ -81,6 +81,12 @@ app.get('/', (req, res) => {
 
 app.use('/auth', authRoutes);
 app.use('/auth/phone', phoneAuthRoutes);
+
+// Mount worker and test routes FIRST (no auth)
+app.use('/api/workers', workerRoutes);
+app.use('/api/test', testRoutes);
+
+// Then mount other API routes
 app.use('/api', apiRoutes);
 app.use('/users', userRoutes);
 app.use('/api/spaces', spaceRoutes);
@@ -95,8 +101,6 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/photos', photoRoutes);
-app.use('/api/workers', workerRoutes);
-app.use('/api/test', testRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
