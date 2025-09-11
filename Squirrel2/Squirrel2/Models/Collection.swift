@@ -13,7 +13,8 @@ struct Collection: Identifiable, Codable {
     let icon: String
     let color: String
     let rules: CollectionRules?
-    let template: CollectionTemplate?
+    let entryFormat: EntryFormat?  // Defines structure for entries in this collection
+    let template: CollectionTemplate?  // Legacy - will phase out
     let settings: CollectionSettings?
     let stats: CollectionStats
     let createdAt: Date

@@ -15,8 +15,9 @@ class Collection {
       examples: [],
       description: ''
     };
+    this.entryFormat = data.entryFormat || null;  // New: Defines field structure for entries
     this.template = data.template || {
-      // Default template structure for entries in this collection
+      // Legacy template structure - will phase out
       fields: [],
       prompts: []
     };
@@ -47,6 +48,7 @@ class Collection {
       icon: collection.icon,
       color: collection.color,
       rules: collection.rules,
+      entryFormat: collection.entryFormat,
       template: collection.template,
       settings: collection.settings,
       stats: collection.stats,
