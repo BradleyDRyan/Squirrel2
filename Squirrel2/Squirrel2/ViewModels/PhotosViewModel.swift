@@ -51,7 +51,6 @@ class PhotosViewModel: ObservableObject {
                             entry = Entry(
                                 id: doc.documentID,
                                 userId: entry.userId,
-                                collectionIds: entry.collectionIds,
                                 spaceIds: entry.spaceIds,
                                 conversationId: entry.conversationId,
                                 title: entry.title,

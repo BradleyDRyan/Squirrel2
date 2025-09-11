@@ -7,6 +7,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 struct PhotosView: View {
     @StateObject private var viewModel = PhotosViewModel()
@@ -256,11 +257,29 @@ struct PhotoDetailView: View {
         // Start listening to collections
         collectionsViewModel.startListening(userId: userId)
         
-        // Map collection IDs to names after a brief delay to let data load
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            collectionNames = entry.collectionIds.compactMap { collectionId in
-                collectionsViewModel.collections.first { $0.id == collectionId }?.name
+        // Query CollectionEntry records to find which collections contain this entry
+        let db = Firestore.firestore()
+        db.collection("collection_entries")
+            .whereField("entryId", isEqualTo: entry.id)
+            .whereField("userId", isEqualTo: userId)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("Error fetching collection entries: \(error)")
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else { return }
+                
+                let collectionIds = documents.compactMap { doc in
+                    doc.data()["collectionId"] as? String
+                }
+                
+                // Map collection IDs to names
+                DispatchQueue.main.async {
+                    self.collectionNames = collectionIds.compactMap { collectionId in
+                        self.collectionsViewModel.collections.first { $0.id == collectionId }?.name
+                    }
+                }
             }
-        }
     }
 }

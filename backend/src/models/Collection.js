@@ -213,6 +213,7 @@ class Collection {
         icon: this.icon,
         color: this.color,
         rules: this.rules,
+        entryFormat: this.entryFormat,
         template: this.template,
         settings: this.settings,
         stats: this.stats,

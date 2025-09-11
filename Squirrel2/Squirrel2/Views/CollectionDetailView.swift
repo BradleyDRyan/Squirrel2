@@ -10,6 +10,7 @@ struct CollectionDetailView: View {
     let collection: Collection
     @StateObject private var viewModel: CollectionDetailViewModel
     @EnvironmentObject var firebaseManager: FirebaseManager
+    @State private var showingSettings = false
     
     init(collection: Collection) {
         self.collection = collection
@@ -92,6 +93,17 @@ struct CollectionDetailView: View {
         }
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .foregroundColor(.primary)
+                }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            CollectionSettingsView(collection: collection)
+        }
         .onAppear {
             if let userId = firebaseManager.currentUser?.uid {
                 viewModel.startListening(userId: userId)

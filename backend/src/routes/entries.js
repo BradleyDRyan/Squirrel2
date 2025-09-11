@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { Entry } = require('../models');
+const { Entry, Collection, CollectionEntry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
+const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
 
 router.use(verifyToken);
 
@@ -82,6 +83,100 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json(entry);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create entry with automatic collection inference
+router.post('/with-inference', async (req, res) => {
+  try {
+    const { Space } = require('../models');
+    const { content, enableInference = true, ...entryData } = req.body;
+    
+    let spaceIds = entryData.spaceIds || [];
+    if (spaceIds.length === 0) {
+      const defaultSpace = await Space.findDefaultSpace(req.user.uid) || 
+                           await Space.createDefaultSpace(req.user.uid);
+      spaceIds = [defaultSpace.id];
+    }
+    
+    // Create the base entry first
+    const entry = await Entry.create({
+      ...entryData,
+      content,
+      spaceIds,
+      userId: req.user.uid
+    });
+    
+    let collectionCreated = null;
+    let collectionEntry = null;
+    
+    // Try to infer collection if enabled
+    if (enableInference && content) {
+      try {
+        const inference = await inferCollectionFromContent(content);
+        
+        if (inference && inference.shouldCreateCollection) {
+          // Check if collection already exists
+          let collection = await Collection.findByName(req.user.uid, inference.collectionName);
+          
+          if (!collection) {
+            // Create new collection with AI-generated details
+            const details = await generateCollectionDetails(
+              inference.collectionName,
+              inference.description,
+              content
+            );
+            
+            collection = await Collection.create({
+              userId: req.user.uid,
+              name: details.name,
+              description: details.description,
+              icon: details.icon || '📝',
+              color: details.color || '#6366f1',
+              rules: details.rules,
+              entryFormat: details.entryFormat,
+              metadata: { 
+                source: 'auto_inference',
+                firstEntry: entry.id
+              }
+            });
+            
+            collectionCreated = collection;
+          }
+          
+          // Create CollectionEntry with formatted data
+          if (collection && inference.extractedData) {
+            collectionEntry = await CollectionEntry.create({
+              userId: req.user.uid,
+              collectionId: collection.id,
+              entryId: entry.id,
+              formattedData: inference.extractedData,
+              metadata: {
+                source: 'auto_inference',
+                inferredAt: new Date()
+              }
+            });
+          }
+        }
+      } catch (inferenceError) {
+        console.error('Collection inference failed:', inferenceError);
+        // Continue without inference - entry is already created
+      }
+    }
+    
+    res.status(201).json({
+      entry,
+      collectionCreated,
+      collectionEntry,
+      inference: collectionCreated ? {
+        collectionName: collectionCreated.name,
+        collectionId: collectionCreated.id,
+        wasNewCollection: true
+      } : null
+    });
+  } catch (error) {
+    console.error('[Create Entry with Inference] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -97,6 +97,35 @@ class CollectionsViewModel: ObservableObject {
                         lastEntryAt: (statsData?["lastEntryAt"] as? Timestamp)?.dateValue()
                     )
                     
+                    // Parse entryFormat if present
+                    var entryFormat: EntryFormat? = nil
+                    if let formatData = data["entryFormat"] as? [String: Any],
+                       let fieldsArray = formatData["fields"] as? [[String: Any]] {
+                        let fields = fieldsArray.compactMap { fieldData -> EntryField? in
+                            guard let key = fieldData["key"] as? String,
+                                  let label = fieldData["label"] as? String,
+                                  let typeStr = fieldData["type"] as? String,
+                                  let type = EntryField.FieldType(rawValue: typeStr) else {
+                                return nil
+                            }
+                            return EntryField(
+                                key: key,
+                                label: label,
+                                type: type,
+                                required: fieldData["required"] as? Bool ?? false,
+                                options: fieldData["options"] as? [String],
+                                min: fieldData["min"] as? Double,
+                                max: fieldData["max"] as? Double,
+                                multiline: fieldData["multiline"] as? Bool,
+                                multiple: fieldData["multiple"] as? Bool
+                            )
+                        }
+                        entryFormat = EntryFormat(
+                            fields: fields,
+                            version: formatData["version"] as? Int ?? 1
+                        )
+                    }
+                    
                     return Collection(
                         id: document.documentID,
                         userId: userId,
@@ -105,6 +134,7 @@ class CollectionsViewModel: ObservableObject {
                         icon: data["icon"] as? String ?? "📁",
                         color: data["color"] as? String ?? "#007AFF",
                         rules: rules,
+                        entryFormat: entryFormat,
                         template: template,
                         settings: settings,
                         stats: stats,

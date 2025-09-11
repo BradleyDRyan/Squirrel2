@@ -18,6 +18,21 @@ struct CollectionEntry: Identifiable, Codable {
     var lastProcessedAt: Date  // When the formatting was last applied
     var metadata: [String: String]?
     
+    // Manual initializer for when we have all values
+    init(id: String, entryId: String, collectionId: String, userId: String,
+         formattedData: [String: Any] = [:], userOverrides: [String: Any]? = nil,
+         createdAt: Date, lastProcessedAt: Date, metadata: [String: String]? = nil) {
+        self.id = id
+        self.entryId = entryId
+        self.collectionId = collectionId
+        self.userId = userId
+        self.formattedData = formattedData
+        self.userOverrides = userOverrides
+        self.createdAt = createdAt
+        self.lastProcessedAt = lastProcessedAt
+        self.metadata = metadata
+    }
+    
     enum CodingKeys: String, CodingKey {
         case id, entryId, collectionId, userId
         case formattedData, userOverrides

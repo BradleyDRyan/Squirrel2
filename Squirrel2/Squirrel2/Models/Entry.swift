@@ -3,7 +3,6 @@ import Foundation
 struct Entry: Identifiable, Codable {
     let id: String
     let userId: String
-    var collectionIds: [String]  // Many-to-many relationship
     var spaceIds: [String]
     let conversationId: String?
     var title: String
@@ -51,7 +50,7 @@ struct Entry: Identifiable, Codable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, userId, collectionId, collectionIds, spaceIds, conversationId, title, content
+        case id, userId, spaceIds, conversationId, title, content
         case type, mood, tags, attachments, location, weather
         case createdAt, updatedAt, metadata
     }
@@ -60,12 +59,6 @@ struct Entry: Identifiable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         userId = try container.decode(String.self, forKey: .userId)
-        // Handle both old single collectionId and new collectionIds array
-        if let singleId = try container.decodeIfPresent(String.self, forKey: .collectionId) {
-            collectionIds = [singleId]
-        } else {
-            collectionIds = try container.decodeIfPresent([String].self, forKey: .collectionIds) ?? []
-        }
         spaceIds = try container.decode([String].self, forKey: .spaceIds)
         conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
         title = try container.decode(String.self, forKey: .title)
@@ -86,7 +79,6 @@ struct Entry: Identifiable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(userId, forKey: .userId)
-        try container.encode(collectionIds, forKey: .collectionIds)
         try container.encode(spaceIds, forKey: .spaceIds)
         try container.encodeIfPresent(conversationId, forKey: .conversationId)
         try container.encode(title, forKey: .title)
@@ -132,7 +124,6 @@ struct Entry: Identifiable, Codable {
     // Initialize with proper defaults
     init(id: String = UUID().uuidString,
          userId: String,
-         collectionIds: [String],
          spaceIds: [String],
          conversationId: String? = nil,
          title: String,
@@ -148,7 +139,6 @@ struct Entry: Identifiable, Codable {
          metadata: [String: String]? = nil) {
         self.id = id
         self.userId = userId
-        self.collectionIds = collectionIds
         self.spaceIds = spaceIds
         self.conversationId = conversationId
         self.title = title

@@ -4,6 +4,7 @@ const { Collection, Entry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
 const { formatDatesInObject } = require('../utils/dateUtils');
 const { generateCollectionRules } = require('../services/collectionRules');
+const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
 
 router.use(verifyToken);
 
@@ -151,6 +152,57 @@ router.post('/generate-rules-preview', async (req, res) => {
     });
   } catch (error) {
     console.error('[Generate Rules Preview] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Infer collection from content (used when creating entries)
+router.post('/infer-from-content', async (req, res) => {
+  try {
+    const { content } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    
+    // Use AI to infer collection details from content
+    const inference = await inferCollectionFromContent(content);
+    
+    if (!inference || !inference.shouldCreateCollection) {
+      return res.json({ 
+        shouldCreateCollection: false,
+        inference: null
+      });
+    }
+    
+    res.json({ 
+      shouldCreateCollection: true,
+      inference
+    });
+  } catch (error) {
+    console.error('[Infer Collection] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate comprehensive collection details (rules + format)
+router.post('/generate-details', async (req, res) => {
+  try {
+    const { name, description, sampleContent } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Collection name is required' });
+    }
+    
+    // Generate comprehensive details including entry format
+    const details = await generateCollectionDetails(name, description || '', sampleContent || '');
+    
+    res.json({ 
+      success: true,
+      details
+    });
+  } catch (error) {
+    console.error('[Generate Details] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
