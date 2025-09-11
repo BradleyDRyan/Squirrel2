@@ -582,7 +582,9 @@ struct ChatView: View {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 
                 if let httpResponse = response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 200 {
+                    print("Photo upload response status: \(httpResponse.statusCode)")
+                    
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
                         if let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                            let success = responseDict["success"] as? Bool,
                            success {
@@ -598,10 +600,21 @@ struct ChatView: View {
                                     print("✅ Photo saved to \(collectionName)")
                                 }
                             }
+                        } else {
+                            // Parse error from response
+                            let errorMessage = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                            await MainActor.run {
+                                cameraError = errorMessage ?? "Failed to process photo"
+                                isProcessingPhoto = false
+                            }
                         }
                     } else {
+                        // Try to get error details from response
+                        let errorDetails = String(data: data, encoding: .utf8) ?? "Unknown error"
+                        print("Photo upload error: \(errorDetails)")
+                        
                         await MainActor.run {
-                            cameraError = "Failed to upload photo"
+                            cameraError = "Upload failed (Status: \(httpResponse.statusCode))"
                             isProcessingPhoto = false
                         }
                     }
