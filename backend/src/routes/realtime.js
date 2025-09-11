@@ -349,7 +349,7 @@ router.post('/function', verifyToken, async (req, res) => {
         // Create the entry
         const savedEntry = await Entry.create({
           userId: userId,
-          collectionId: targetCollection.id,
+          collectionIds: [targetCollection.id],  // Entry can belong to multiple collections
           title: '',
           content: args.content,
           type: 'journal',
@@ -413,7 +413,7 @@ router.post('/function', verifyToken, async (req, res) => {
         // Create the entry
         const entryData = {
           userId: userId,
-          collectionId: entryTargetCollection.id,
+          collectionIds: [entryTargetCollection.id],  // Entry can belong to multiple collections
           title: args.title || '',
           content: entryContent,
           type: 'journal',

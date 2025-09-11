@@ -4,7 +4,12 @@ class Entry {
   constructor(data = {}) {
     this.id = data.id || null;
     this.userId = data.userId || null;
-    this.collectionId = data.collectionId || null;
+    // Support both old single collectionId and new collectionIds array
+    if (data.collectionId) {
+      this.collectionIds = [data.collectionId];
+    } else {
+      this.collectionIds = data.collectionIds || [];
+    }
     this.spaceIds = data.spaceIds || [];
     this.conversationId = data.conversationId || null;
     this.title = data.title || '';
@@ -28,7 +33,7 @@ class Entry {
     const entry = new Entry(data);
     const docRef = await this.collection().add({
       userId: entry.userId,
-      collectionId: entry.collectionId,
+      collectionIds: entry.collectionIds,
       spaceIds: entry.spaceIds,
       conversationId: entry.conversationId,
       title: entry.title,

@@ -29,9 +29,9 @@ class CollectionDetailViewModel: ObservableObject {
         stopListening()
         
         // Set up real-time listener for entries in this collection
-        // Entries are stored as a top-level collection, filtered by collectionId
+        // Entries can belong to multiple collections (many-to-many)
         entriesListener = db.collection("entries")
-            .whereField("collectionId", isEqualTo: collectionId)
+            .whereField("collectionIds", arrayContains: collectionId)
             .whereField("userId", isEqualTo: userId)
             .order(by: "createdAt", descending: true)
             .addSnapshotListener { [weak self] snapshot, error in
@@ -71,7 +71,7 @@ class CollectionDetailViewModel: ObservableObject {
                     let entryData: [String: Any] = [
                         "id": document.documentID,
                         "userId": userId,
-                        "collectionId": self.collectionId,
+                        "collectionIds": data["collectionIds"] as? [String] ?? [self.collectionId],
                         "spaceIds": data["spaceIds"] as? [String] ?? [],
                         "conversationId": data["conversationId"] as? String,
                         "title": data["title"] as? String ?? "",
