@@ -108,6 +108,17 @@ class VoiceAIManager: ObservableObject {
             // Trim any whitespace or newlines from the token
             let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             
+            // Debug: Check if token contains any special characters
+            if token != cleanToken {
+                print("⚠️ Token had whitespace/newlines that were trimmed")
+            }
+            
+            // Additional safety: Remove any non-ASCII characters
+            let safeToken = cleanToken.filter { $0.isASCII }
+            if safeToken != cleanToken {
+                print("⚠️ Token had non-ASCII characters that were removed")
+            }
+            
             let urlString = "\(AppConfig.apiBaseURL)/realtime/token"
             print("🔑 Getting ephemeral token from: \(urlString)")
             guard let url = URL(string: urlString) else {
