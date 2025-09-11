@@ -20,6 +20,7 @@ const aiRoutes = require('./routes/ai');
 const realtimeRoutes = require('./routes/realtime');
 const configRoutes = require('./routes/config');
 const workerRoutes = require('./routes/workers');
+const testRoutes = require('./routes/test');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -68,6 +69,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/workers', workerRoutes);
+app.use('/api/test', testRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
