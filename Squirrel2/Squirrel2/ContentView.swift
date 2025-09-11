@@ -187,6 +187,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingPhoneAuth) {
             PhoneAuthView()
+            
                 .environmentObject(firebaseManager)
         }
         .sheet(isPresented: $showingSettings) {
