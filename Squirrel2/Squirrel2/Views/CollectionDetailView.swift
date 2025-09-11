@@ -33,27 +33,9 @@ struct CollectionDetailView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Text(collection.description)
+                    Text(collection.instructions)
                         .font(.body)
                         .foregroundColor(.secondary)
-                    
-                    if let rules = collection.rules {
-                        // Show keywords as tags
-                        if !rules.keywords.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(rules.keywords.prefix(5), id: \.self) { keyword in
-                                        Text(keyword)
-                                            .font(.caption)
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 4)
-                                            .background(Color(hex: collection.color).opacity(0.2))
-                                            .cornerRadius(12)
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
                 .padding()
                 .background(Color(hex: collection.color).opacity(0.05))

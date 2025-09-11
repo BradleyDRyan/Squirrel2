@@ -92,8 +92,8 @@ struct CollectionCard: View {
                 .foregroundColor(.primary)
                 .lineLimit(1)
             
-            if !collection.description.isEmpty {
-                Text(collection.description)
+            if !collection.instructions.isEmpty {
+                Text(collection.instructions)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)

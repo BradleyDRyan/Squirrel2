@@ -10,6 +10,7 @@ struct MainTabView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
     @State private var selectedTab = 0
     @State private var showingChat = false
+    @State private var showingCameraMode = false
     
     var body: some View {
         ZStack {
@@ -40,7 +41,7 @@ struct MainTabView: View {
                     Spacer()
                     
                     Button(action: {
-                        showingChat = true
+                        showingCameraMode = true
                     }) {
                         ZStack {
                             Circle()
@@ -59,8 +60,14 @@ struct MainTabView: View {
             }
         }
         .sheet(isPresented: $showingChat) {
-            ChatView()
+            ChatView(showingCameraMode: $showingCameraMode)
                 .environmentObject(firebaseManager)
+        }
+        .onChange(of: showingCameraMode) { _, shouldShow in
+            if shouldShow {
+                // Open chat view with camera mode enabled
+                showingChat = true
+            }
         }
     }
 }

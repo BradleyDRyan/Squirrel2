@@ -9,10 +9,9 @@ struct Collection: Identifiable, Codable {
     let id: String
     let userId: String
     let name: String
-    let description: String
+    let instructions: String  // AI guidance for what belongs in this collection
     let icon: String
     let color: String
-    let rules: CollectionRules?
     let entryFormat: EntryFormat?  // Defines structure for entries in this collection
     let template: CollectionTemplate?  // Legacy - will phase out
     let settings: CollectionSettings?
@@ -24,13 +23,6 @@ struct Collection: Identifiable, Codable {
     var entryCount: Int {
         return stats.entryCount
     }
-}
-
-struct CollectionRules: Codable {
-    let keywords: [String]
-    let patterns: [String]
-    let examples: [[String: String]]
-    let description: String
 }
 
 struct CollectionTemplate: Codable {

@@ -60,16 +60,8 @@ class CollectionsViewModel: ObservableObject {
                         return nil
                     }
                     
-                    // Parse rules if present
-                    var rules: CollectionRules? = nil
-                    if let rulesData = data["rules"] as? [String: Any] {
-                        rules = CollectionRules(
-                            keywords: rulesData["keywords"] as? [String] ?? [],
-                            patterns: rulesData["patterns"] as? [String] ?? [],
-                            examples: rulesData["examples"] as? [[String: String]] ?? [],
-                            description: rulesData["description"] as? String ?? ""
-                        )
-                    }
+                    // Parse instructions if present
+                    let instructions = data["instructions"] as? String ?? ""
                     
                     // Parse template if present
                     var template: CollectionTemplate? = nil
@@ -130,10 +122,9 @@ class CollectionsViewModel: ObservableObject {
                         id: document.documentID,
                         userId: userId,
                         name: name,
-                        description: data["description"] as? String ?? "",
+                        instructions: instructions,
                         icon: data["icon"] as? String ?? "📁",
                         color: data["color"] as? String ?? "#007AFF",
-                        rules: rules,
                         entryFormat: entryFormat,
                         template: template,
                         settings: settings,

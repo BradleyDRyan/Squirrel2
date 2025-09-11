@@ -13,10 +13,8 @@ struct CollectionSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var firebaseManager: FirebaseManager
     
-    // Rules editing
-    @State private var keywords: String = ""
-    @State private var patterns: String = ""
-    @State private var rulesDescription: String = ""
+    // Instructions editing
+    @State private var instructions: String = ""
     
     // Entry format editing
     @State private var entryFields: [EntryField] = []
@@ -48,63 +46,29 @@ struct CollectionSettingsView: View {
                     }
                     
                     HStack {
-                        Text("Description")
+                        Text("Instructions")
                         Spacer()
-                        Text(collection.description.isEmpty ? "No description" : collection.description)
+                        Text(collection.instructions.isEmpty ? "No instructions" : collection.instructions)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.trailing)
                     }
                 }
                 
-                // Rules Section
-                Section("Collection Rules") {
+                // Instructions Section
+                Section("Collection Instructions") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Keywords")
+                        Text("AI Instructions")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         
-                        TextEditor(text: $keywords)
-                            .frame(minHeight: 60)
+                        TextEditor(text: $instructions)
+                            .frame(minHeight: 100)
                             .padding(8)
                             .background(Color.gray.opacity(0.1))
                             .cornerRadius(8)
                             .font(.caption)
                         
-                        Text("Enter keywords separated by commas (e.g., movie, film, watched)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Patterns")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        TextEditor(text: $patterns)
-                            .frame(minHeight: 60)
-                            .padding(8)
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                            .font(.caption)
-                        
-                        Text("Enter patterns that trigger this collection (e.g., \"I watched\", \"movie review\")")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Rules Description")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        TextEditor(text: $rulesDescription)
-                            .frame(minHeight: 60)
-                            .padding(8)
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                            .font(.caption)
-                        
-                        Text("Describe what type of content belongs in this collection")
+                        Text("Provide guidance to the AI about what type of content belongs in this collection")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -217,12 +181,8 @@ struct CollectionSettingsView: View {
     }
     
     private func loadCurrentSettings() {
-        // Load current rules
-        if let rules = collection.rules {
-            keywords = rules.keywords.joined(separator: ", ")
-            patterns = rules.patterns.joined(separator: ", ")
-            rulesDescription = rules.description
-        }
+        // Load current instructions
+        instructions = collection.instructions
         
         // Load current entry format
         if let format = collection.entryFormat {
@@ -239,13 +199,7 @@ struct CollectionSettingsView: View {
         
         isSaving = true
         
-        // Prepare updated rules
-        let updatedRules = CollectionRules(
-            keywords: keywords.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) },
-            patterns: patterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) },
-            examples: collection.rules?.examples ?? [],  // Keep existing examples
-            description: rulesDescription
-        )
+        // No rules anymore - just instructions
         
         // Prepare updated entry format
         let updatedFormat = entryFields.isEmpty ? nil : EntryFormat(
@@ -265,11 +219,7 @@ struct CollectionSettingsView: View {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 
                 let updateData: [String: Any] = [
-                    "rules": [
-                        "keywords": updatedRules.keywords,
-                        "patterns": updatedRules.patterns,
-                        "description": updatedRules.description
-                    ],
+                    "instructions": instructions,
                     "entryFormat": updatedFormat != nil ? [
                         "fields": entryFields.map { field in
                             [

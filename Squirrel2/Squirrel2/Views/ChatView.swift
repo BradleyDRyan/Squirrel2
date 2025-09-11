@@ -10,6 +10,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 struct ChatView: View {
+    @Binding var showingCameraMode: Bool
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var firebaseManager: FirebaseManager
     @StateObject private var aiManager = ChatAIManager()
@@ -22,62 +23,94 @@ struct ChatView: View {
     @State private var streamingMessageContent = ""
     @FocusState private var isInputFocused: Bool
     
+    // Camera states
+    @State private var isCameraActive = false
+    @State private var capturedImage: UIImage?
+    @State private var isCapturing = false
+    @State private var cameraError: String?
+    @State private var isProcessingPhoto = false
+    
     private let db = Firestore.firestore()
     
     var body: some View {
         NavigationView {
             ZStack {
-                // Voice mode is default
-                if !showingChatMode {
-                    VoiceDefaultView(
-                        conversation: $conversation,
-                        messages: $messages,
-                        onSwitchToChat: {
-                            showingChatMode = true
-                        },
-                        onDismiss: {
-                            dismiss()
+                // Camera background when active
+                if isCameraActive {
+                    CameraPreviewView(
+                        capturedImage: $capturedImage,
+                        isCapturing: $isCapturing,
+                        onError: { error in
+                            cameraError = error
+                            isCameraActive = false
                         }
                     )
-                    .transition(.opacity)
-                } else {
-                    // Chat mode
-                    VStack(spacing: 0) {
-                        chatContent
-                        ChatInputBar(
-                            messageText: $messageText,
-                            isLoading: isLoading,
-                            onSend: sendMessage
-                        )
-                    }
-                    .navigationTitle(conversation?.title ?? "Chat")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button("Close") {
+                    .ignoresSafeArea()
+                    
+                    // Camera overlay controls
+                    cameraOverlay
+                }
+                
+                // Normal chat/voice view
+                if !isCameraActive {
+                    if !showingChatMode {
+                        VoiceDefaultView(
+                            conversation: $conversation,
+                            messages: $messages,
+                            onSwitchToChat: {
+                                showingChatMode = true
+                            },
+                            onDismiss: {
                                 dismiss()
                             }
+                        )
+                        .transition(.opacity)
+                    } else {
+                        // Chat mode
+                        VStack(spacing: 0) {
+                            chatContent
+                            ChatInputBar(
+                                messageText: $messageText,
+                                isLoading: isLoading,
+                                onSend: sendMessage
+                            )
                         }
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showingChatMode = false
+                        .navigationTitle(conversation?.title ?? "Chat")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button("Close") {
+                                    dismiss()
                                 }
-                            }) {
-                                Image(systemName: "mic.circle.fill")
-                                    .foregroundColor(.squirrelPrimary)
-                                    .font(.system(size: 22))
+                            }
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showingChatMode = false
+                                    }
+                                }) {
+                                    Image(systemName: "mic.circle.fill")
+                                        .foregroundColor(.squirrelPrimary)
+                                        .font(.system(size: 22))
+                                }
                             }
                         }
+                        .background(Color.squirrelSurfaceBackground)
+                        .transition(.opacity)
                     }
-                    .background(Color.squirrelSurfaceBackground)
-                    .transition(.opacity)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showingChatMode)
+        .animation(.easeInOut(duration: 0.3), value: isCameraActive)
         .onAppear {
             setupConversation()
+            
+            // Check if camera mode was requested
+            if showingCameraMode {
+                isCameraActive = true
+                showingCameraMode = false
+            }
             
             // Initialize VoiceAIManager for this conversation with chat history
             Task {
@@ -92,6 +125,16 @@ struct ChatView: View {
                 await VoiceAIManager.shared.disconnect()
                 print("✅ VoiceAIManager disconnected")
             }
+        }
+        .onChange(of: capturedImage) { _, image in
+            if let image = image {
+                processPhoto(image)
+            }
+        }
+        .alert("Camera Error", isPresented: .constant(cameraError != nil)) {
+            Button("OK") { cameraError = nil }
+        } message: {
+            Text(cameraError ?? "")
         }
     }
     
@@ -443,9 +486,137 @@ struct ChatView: View {
             }
         }
     }
+    
+    @ViewBuilder
+    private var cameraOverlay: some View {
+        VStack {
+            // Top bar with close button
+            HStack {
+                Button(action: {
+                    isCameraActive = false
+                    capturedImage = nil
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.white)
+                        .background(Circle().fill(Color.black.opacity(0.5)))
+                }
+                .padding()
+                
+                Spacer()
+            }
+            
+            Spacer()
+            
+            // Bottom controls
+            VStack(spacing: 20) {
+                if isProcessingPhoto {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        Text("Processing photo...")
+                            .foregroundColor(.white)
+                            .font(.headline)
+                    }
+                    .padding()
+                    .background(Capsule().fill(Color.black.opacity(0.7)))
+                }
+                
+                // Capture button
+                Button(action: {
+                    isCapturing = true
+                }) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white, lineWidth: 4)
+                            .frame(width: 70, height: 70)
+                        
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 60, height: 60)
+                    }
+                }
+                .disabled(isCapturing || isProcessingPhoto)
+                .opacity((isCapturing || isProcessingPhoto) ? 0.5 : 1.0)
+            }
+            .padding(.bottom, 50)
+        }
+    }
+    
+    private func processPhoto(_ image: UIImage) {
+        guard let user = firebaseManager.currentUser else { return }
+        
+        isProcessingPhoto = true
+        
+        Task {
+            do {
+                let token = try await user.getIDToken()
+                
+                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                    cameraError = "Failed to process image"
+                    isProcessingPhoto = false
+                    return
+                }
+                
+                // Create multipart form data
+                let boundary = UUID().uuidString
+                var body = Data()
+                
+                // Add image data
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n".data(using: .utf8)!)
+                body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+                body.append(imageData)
+                body.append("\r\n".data(using: .utf8)!)
+                body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+                
+                // Create request
+                guard let url = URL(string: "\(AppConfig.apiBaseURL)/photos/process") else { return }
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                request.httpBody = body
+                
+                // Send request
+                let (data, response) = try await URLSession.shared.data(for: request)
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode == 200 {
+                        if let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let success = responseDict["success"] as? Bool,
+                           success {
+                            
+                            await MainActor.run {
+                                // Success - close camera and show confirmation
+                                isCameraActive = false
+                                capturedImage = nil
+                                isProcessingPhoto = false
+                                
+                                // Could show a success toast here
+                                if let collectionName = responseDict["collectionName"] as? String {
+                                    print("✅ Photo saved to \(collectionName)")
+                                }
+                            }
+                        }
+                    } else {
+                        await MainActor.run {
+                            cameraError = "Failed to upload photo"
+                            isProcessingPhoto = false
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    cameraError = "Error: \(error.localizedDescription)"
+                    isProcessingPhoto = false
+                }
+            }
+        }
+    }
 }
 
 #Preview {
-    ChatView()
+    ChatView(showingCameraMode: .constant(false))
         .environmentObject(FirebaseManager.shared)
 }

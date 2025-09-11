@@ -5,7 +5,6 @@ class Collection {
     this.id = data.id || null;
     this.userId = data.userId || null;
     this.name = data.name || '';
-    this.description = data.description || '';
     this.instructions = data.instructions || '';  // AI guidance for what belongs in this collection
     this.icon = data.icon || '📝';
     this.color = data.color || '#6366f1';
@@ -38,7 +37,6 @@ class Collection {
     const docRef = await this.collection().add({
       userId: collection.userId,
       name: collection.name,
-      description: collection.description,
       instructions: collection.instructions,
       icon: collection.icon,
       color: collection.color,
@@ -100,7 +98,7 @@ class Collection {
     );
   }
 
-  static async findOrCreateByName(userId, name, description = '') {
+  static async findOrCreateByName(userId, name, instructions = '') {
     // Find existing collection or create new one
     let collection = await this.findByName(userId, name);
     
@@ -108,7 +106,7 @@ class Collection {
       collection = await this.create({
         userId,
         name,
-        description: description || `Collection for ${name}`,
+        instructions: instructions || `Add entries related to ${name}`,
         icon: this.getDefaultIcon(name),
         metadata: { source: 'auto_created' }
       });
@@ -118,7 +116,7 @@ class Collection {
   }
 
   static async findBestMatch(userId, content) {
-    // Find the best matching collection based on content and rules
+    // Find the best matching collection based on explicit reference
     const collections = await this.findByUserId(userId);
     
     // Check for explicit collection reference (e.g., "words to live by: ...")
@@ -137,24 +135,7 @@ class Collection {
       }
     }
     
-    // Check collections with rules
-    for (const collection of collections) {
-      if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
-        const contentLower = content.toLowerCase();
-        const matchedKeywords = collection.rules.keywords.filter(keyword => 
-          contentLower.includes(keyword.toLowerCase())
-        );
-        
-        if (matchedKeywords.length > 0) {
-          return {
-            collection,
-            content, // Return original content
-            confidence: matchedKeywords.length / collection.rules.keywords.length
-          };
-        }
-      }
-    }
-    
+    // No keyword matching - let AI handle all inference
     return null;
   }
 
@@ -203,7 +184,6 @@ class Collection {
     if (this.id) {
       await Collection.collection().doc(this.id).update({
         name: this.name,
-        description: this.description,
         instructions: this.instructions,
         icon: this.icon,
         color: this.color,

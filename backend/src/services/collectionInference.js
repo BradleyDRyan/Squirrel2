@@ -68,11 +68,6 @@ Return JSON:
     const result = JSON.parse(response.content);
     console.log('[INFERENCE] Parsed result:', JSON.stringify(result, null, 2));
     
-    // Add description for new collections
-    if (result.shouldCreateCollection && !result.description) {
-      result.description = `A collection for ${result.collectionName}`;
-    }
-    
     return result;
   } catch (error) {
     console.error('[INFERENCE] Error inferring collection from content:', error);
@@ -82,23 +77,18 @@ Return JSON:
 }
 
 /**
- * Generates comprehensive collection details including rules and entry format
+ * Generates collection details including icon, color, and instructions
  * This is called when explicitly creating a collection (not from content inference)
  */
-async function generateCollectionDetails(collectionName, description = '', sampleContent = '') {
+async function generateCollectionDetails(collectionName, unused = '', sampleContent = '') {
   try {
     if (!process.env.OPENAI_API_KEY) {
       // Return basic structure if OpenAI is not configured
       return {
         name: collectionName,
-        description: description || `Collection for ${collectionName}`,
-        rules: {
-          keywords: [collectionName.toLowerCase()],
-          patterns: [],
-          examples: [],
-          description: `Capture entries related to ${collectionName}`
-        },
-        entryFormat: null
+        instructions: `Add entries related to ${collectionName}`,
+        icon: '📝',
+        color: '#6366f1'
       };
     }
 
@@ -130,14 +120,9 @@ Return JSON with icon, color, and instructions:
     // Fallback to basic structure
     return {
       name: collectionName,
-      description: description || `Collection for ${collectionName}`,
-      rules: {
-        keywords: [collectionName.toLowerCase()],
-        patterns: [],
-        examples: [],
-        description: `Capture entries related to ${collectionName}`
-      },
-      entryFormat: null
+      instructions: `Add entries related to ${collectionName}`,
+      icon: '📝',
+      color: '#6366f1'
     };
   }
 }

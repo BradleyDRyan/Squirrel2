@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var showingTaskDetail = false
     @State private var selectedTask: UserTask?
     @State private var showingSettings = false
+    @State private var showingCameraMode = false
     @State private var conversationsListener: ListenerRegistration?
     @State private var tasksListener: ListenerRegistration?
     
@@ -181,7 +182,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingChat) {
-            ChatView()
+            ChatView(showingCameraMode: $showingCameraMode)
                 .environmentObject(firebaseManager)
         }
         .sheet(isPresented: $showingPhoneAuth) {
