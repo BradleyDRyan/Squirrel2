@@ -244,16 +244,16 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     const entry = await Entry.create(entryData);
     console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
     
-    // Trigger inference independently
+    // Trigger inference independently using internal service auth
     console.log(`[VOICE-ENTRY] Triggering collection inference for entry ${entry.id}`);
     
-    const admin = require('firebase-admin');
-    const serviceToken = await admin.auth().createCustomToken(req.user.uid, {
-      service: 'voice-inference',
-      entryId: entry.id
-    });
+    // Generate service secret if not set
+    if (!process.env.INTERNAL_SERVICE_SECRET) {
+      const crypto = require('crypto');
+      process.env.INTERNAL_SERVICE_SECRET = crypto.randomBytes(32).toString('hex');
+    }
     
-    // Fire and forget the inference
+    // Fire and forget the inference using service authentication
     const https = require('https');
     const inferenceUrl = process.env.NODE_ENV === 'production' 
       ? 'https://squirrel2.vercel.app/api/entries/' 
@@ -268,7 +268,8 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       path: url.pathname,
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${serviceToken}`,
+        'Authorization': `Bearer ${process.env.INTERNAL_SERVICE_SECRET}`,
+        'X-User-Id': req.user.uid,  // Pass user ID in header for service auth
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(postData)
       }
