@@ -4,7 +4,7 @@ const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const axios = require('axios');
-const { UserTask, Space, Entry, Collection } = require('../models');
+const { UserTask, Space, Entry, Collection, CollectionEntry } = require('../models');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -349,12 +349,8 @@ router.post('/function', verifyToken, async (req, res) => {
                            await Space.createDefaultSpace(userId);
         const extractSpaceIds = extractSpace ? [extractSpace.id] : [];
         
-        // Create the entry directly using the Entry model with AI inference
+        // Simply create the entry and let background processing handle inference
         try {
-          // Import the inference service
-          const { inferAndSortEntry } = require('../services/collectionInference');
-          
-          // Create the entry first
           const entryData = {
             userId: userId,
             title: '',
@@ -370,14 +366,51 @@ router.post('/function', verifyToken, async (req, res) => {
           const entry = await Entry.create(entryData);
           console.log(`[EXTRACT_ENTRIES] Created entry ${entry.id}`);
           
-          // Run AI inference to sort into collections
-          try {
-            await inferAndSortEntry(entry.id, userId);
-            console.log(`[EXTRACT_ENTRIES] AI inference completed for entry ${entry.id}`);
-          } catch (inferenceError) {
-            console.error(`[EXTRACT_ENTRIES] AI inference failed:`, inferenceError);
-            // Continue anyway - entry is created even if inference fails
-          }
+          // Trigger async inference - fire and forget
+          const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+          
+          // Run inference in background without waiting
+          inferCollectionFromContent(args.content).then(async (inference) => {
+            if (inference && inference.shouldCreateCollection) {
+              try {
+                let collection = await Collection.findByName(userId, inference.collectionName);
+                
+                if (!collection) {
+                  const details = await generateCollectionDetails(
+                    inference.collectionName,
+                    inference.description,
+                    [args.content]
+                  );
+                  
+                  collection = await Collection.create({
+                    userId: userId,
+                    name: details.name,
+                    description: details.description,
+                    icon: details.icon,
+                    rules: details.rules,
+                    entryFormat: details.entryFormat,
+                    metadata: { source: 'ai_inference' }
+                  });
+                  
+                  console.log(`[EXTRACT_ENTRIES] Background: Created collection: ${collection.name}`);
+                }
+                
+                await CollectionEntry.create({
+                  entryId: entry.id,
+                  collectionId: collection.id,
+                  userId: userId,
+                  formattedData: { content: args.content },
+                  metadata: { source: 'voice' }
+                });
+                
+                console.log(`[EXTRACT_ENTRIES] Background: Linked entry ${entry.id} to collection ${collection.name}`);
+              } catch (err) {
+                console.error(`[EXTRACT_ENTRIES] Background inference error:`, err);
+              }
+            }
+          }).catch(err => {
+            console.error(`[EXTRACT_ENTRIES] Background inference failed:`, err);
+          });
           
           result = {
             success: true,
