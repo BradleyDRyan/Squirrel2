@@ -29,9 +29,10 @@ class CollectionDetailViewModel: ObservableObject {
         stopListening()
         
         // Set up real-time listener for entries in this collection
-        entriesListener = db.collection("collections")
-            .document(collectionId)
-            .collection("entries")
+        // Entries are stored as a top-level collection, filtered by collectionId
+        entriesListener = db.collection("entries")
+            .whereField("collectionId", isEqualTo: collectionId)
+            .whereField("userId", isEqualTo: userId)
             .order(by: "createdAt", descending: true)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
