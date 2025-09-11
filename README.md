@@ -108,6 +108,14 @@ cd backend
 npm run dev  # Start with nodemon for auto-reload
 ```
 
+### Deployment
+The backend is deployed on Vercel and automatically deploys when changes are pushed to the main branch on GitHub.
+
+**DO NOT** use `vercel --prod` for deployments. Simply:
+1. Commit your changes
+2. Push to GitHub (main branch)
+3. Vercel will automatically deploy via GitHub integration
+
 ### Firebase Emulators
 ```bash
 firebase emulators:start

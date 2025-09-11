@@ -351,6 +351,8 @@ router.post('/function', verifyToken, async (req, res) => {
         
         // Simply create the entry and let background processing handle inference
         try {
+          console.log(`[EXTRACT_ENTRIES] Step 1: Creating entry for content: "${args.content}"`);
+          
           const entryData = {
             userId: userId,
             title: '',
@@ -364,18 +366,25 @@ router.post('/function', verifyToken, async (req, res) => {
           };
           
           const entry = await Entry.create(entryData);
-          console.log(`[EXTRACT_ENTRIES] Created entry ${entry.id}`);
+          console.log(`[EXTRACT_ENTRIES] Step 1 Complete: Entry ${entry.id} saved to database`);
           
           // Trigger async inference - fire and forget
           const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
           
+          console.log(`[EXTRACT_ENTRIES] Step 2: Starting background AI inference for collection sorting`);
+          
           // Run inference in background without waiting
           inferCollectionFromContent(args.content).then(async (inference) => {
+            console.log(`[EXTRACT_ENTRIES] Step 3: AI inference complete. Result:`, inference);
             if (inference && inference.shouldCreateCollection) {
+              console.log(`[EXTRACT_ENTRIES] Step 4: Should create/link to collection: "${inference.collectionName}"`);
+              
               try {
                 let collection = await Collection.findByName(userId, inference.collectionName);
                 
                 if (!collection) {
+                  console.log(`[EXTRACT_ENTRIES] Step 5a: Collection "${inference.collectionName}" doesn't exist, creating...`);
+                  
                   const details = await generateCollectionDetails(
                     inference.collectionName,
                     inference.description,
@@ -392,10 +401,14 @@ router.post('/function', verifyToken, async (req, res) => {
                     metadata: { source: 'ai_inference' }
                   });
                   
-                  console.log(`[EXTRACT_ENTRIES] Background: Created collection: ${collection.name}`);
+                  console.log(`[EXTRACT_ENTRIES] Step 5b: Created new collection: ${collection.name} (ID: ${collection.id})`);
+                } else {
+                  console.log(`[EXTRACT_ENTRIES] Step 5a: Found existing collection: ${collection.name} (ID: ${collection.id})`);
                 }
                 
-                await CollectionEntry.create({
+                console.log(`[EXTRACT_ENTRIES] Step 6: Creating CollectionEntry link...`);
+                
+                const collectionEntry = await CollectionEntry.create({
                   entryId: entry.id,
                   collectionId: collection.id,
                   userId: userId,
@@ -403,13 +416,15 @@ router.post('/function', verifyToken, async (req, res) => {
                   metadata: { source: 'voice' }
                 });
                 
-                console.log(`[EXTRACT_ENTRIES] Background: Linked entry ${entry.id} to collection ${collection.name}`);
+                console.log(`[EXTRACT_ENTRIES] Step 7: SUCCESS! Entry ${entry.id} linked to collection "${collection.name}" via CollectionEntry ${collectionEntry.id}`);
               } catch (err) {
-                console.error(`[EXTRACT_ENTRIES] Background inference error:`, err);
+                console.error(`[EXTRACT_ENTRIES] Step ERROR: Background collection processing failed:`, err);
               }
+            } else {
+              console.log(`[EXTRACT_ENTRIES] Step 4: AI determined no collection needed for this content`);
             }
           }).catch(err => {
-            console.error(`[EXTRACT_ENTRIES] Background inference failed:`, err);
+            console.error(`[EXTRACT_ENTRIES] Step 3 ERROR: AI inference failed:`, err);
           });
           
           result = {
