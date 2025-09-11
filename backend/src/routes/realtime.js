@@ -16,73 +16,61 @@ module.exports.activeSessions = activeSessions;
 // Helper function to sort entry to collection asynchronously
 async function sortEntryToCollection(entry, userId) {
   try {
-    console.log(`[SORTER] Starting collection sorting for entry ${entry.id}`);
+    console.log(`[SORTER] Starting AI-powered collection sorting for entry ${entry.id}`);
     
     const existingCollections = await Collection.findByUserId(userId);
     let targetCollection = null;
     let formattedData = { content: entry.content };
     let wasInferred = false;
     
-    // First try simple keyword matching
-    for (const collection of existingCollections) {
-      if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
-        const contentLower = entry.content.toLowerCase();
-        const matchedKeywords = collection.rules.keywords.filter(keyword => 
-          contentLower.includes(keyword.toLowerCase())
+    // Always use AI inference for intelligent sorting
+    console.log(`[SORTER] Using AI to analyze content and determine collection...`);
+    console.log(`[SORTER] Existing collections: ${existingCollections.map(c => c.name).join(', ') || 'none'}`);
+    
+    // Pass existing collections to AI for better matching
+    const collectionNames = existingCollections.map(c => c.name);
+    const inference = await inferCollectionFromContent(entry.content, collectionNames);
+    
+    if (inference && inference.shouldCreateCollection) {
+      console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
+      
+      // Check if suggested collection already exists
+      targetCollection = await Collection.findByName(userId, inference.collectionName);
+      
+      if (!targetCollection) {
+        // Create new collection with AI-generated details
+        console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
+        const details = await generateCollectionDetails(
+          inference.collectionName,
+          inference.description,
+          entry.content
         );
         
-        if (matchedKeywords.length > 0) {
-          targetCollection = collection;
-          console.log(`[SORTER] Matched existing collection: "${collection.name}" by keywords`);
-          break;
-        }
+        targetCollection = await Collection.create({
+          userId: userId,
+          name: details.name,
+          description: details.description,
+          icon: details.icon || '📝',
+          color: details.color || '#6366f1',
+          rules: details.rules,
+          entryFormat: details.entryFormat,
+          metadata: { 
+            source: 'voice_ai_sorter',
+            firstEntry: entry.id
+          }
+        });
+        
+        wasInferred = true;
+        console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
       }
-    }
-    
-    // If no match, use AI inference
-    if (!targetCollection) {
-      console.log(`[SORTER] No keyword match, using AI inference...`);
-      const inference = await inferCollectionFromContent(entry.content);
       
-      if (inference && inference.shouldCreateCollection) {
-        console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
-        
-        // Check if suggested collection already exists
-        targetCollection = await Collection.findByName(userId, inference.collectionName);
-        
-        if (!targetCollection) {
-          // Create new collection with AI-generated details
-          console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
-          const details = await generateCollectionDetails(
-            inference.collectionName,
-            inference.description,
-            entry.content
-          );
-          
-          targetCollection = await Collection.create({
-            userId: userId,
-            name: details.name,
-            description: details.description,
-            icon: details.icon || '📝',
-            color: details.color || '#6366f1',
-            rules: details.rules,
-            entryFormat: details.entryFormat,
-            metadata: { 
-              source: 'voice_ai_sorter',
-              firstEntry: entry.id
-            }
-          });
-          
-          wasInferred = true;
-          console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
-        }
-        
-        // Use extracted data if available
-        if (inference.extractedData) {
-          formattedData = inference.extractedData;
-          console.log(`[SORTER] Using extracted data:`, formattedData);
-        }
+      // Use extracted data if available
+      if (inference.extractedData) {
+        formattedData = inference.extractedData;
+        console.log(`[SORTER] Using extracted data:`, formattedData);
       }
+    } else {
+      console.log(`[SORTER] AI determined this content doesn't need a collection`);
     }
     
     // If we have a collection, create the CollectionEntry link

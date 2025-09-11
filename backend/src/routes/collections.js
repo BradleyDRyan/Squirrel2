@@ -207,6 +207,37 @@ router.post('/generate-details', async (req, res) => {
   }
 });
 
+// Test inference endpoint (for debugging)
+router.post('/test-inference', async (req, res) => {
+  try {
+    const { content } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    
+    console.log(`[TEST-INFERENCE] Testing with content: "${content}"`);
+    
+    // Test the inference function directly
+    const inference = await inferCollectionFromContent(content);
+    
+    console.log('[TEST-INFERENCE] Result:', JSON.stringify(inference, null, 2));
+    
+    res.json({ 
+      success: true,
+      content,
+      inference,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[TEST-INFERENCE] Error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // Delete a collection (only if empty)
 router.delete('/:id', async (req, res) => {
   try {

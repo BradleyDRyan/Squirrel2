@@ -10,7 +10,7 @@ const { chatCompletion } = require('./openai');
  * -> Collection: "Candle Ratings"
  * -> Format: { name: text, brand: text, rating: number }
  */
-async function inferCollectionFromContent(content) {
+async function inferCollectionFromContent(content, existingCollections = []) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       console.log('[INFERENCE] No OpenAI API key configured');
@@ -19,14 +19,27 @@ async function inferCollectionFromContent(content) {
     }
     
     console.log('[INFERENCE] Starting inference for content:', content);
+    console.log('[INFERENCE] Existing collections:', existingCollections);
+
+    const existingCollectionsContext = existingCollections.length > 0 
+      ? `\nExisting collections: ${existingCollections.join(', ')}\n\nFirst check if this content belongs to any existing collection. If it matches an existing collection, use that exact name.`
+      : '';
 
     const prompt = `Analyze this user input and determine if it should belong to a collection:
 "${content}"
+${existingCollectionsContext}
 
-If this content suggests a collection pattern (like ratings, reviews, lists, etc.), generate:
-1. A collection name (e.g., "Candle Ratings", "Book Reviews", "Workout Log")
+Think about what type of content this is:
+- Is it a rating or review? (e.g., "Boy Smells Ash candle is 8/10" -> "Candle Ratings")
+- Is it a movie/book/product review? (e.g., "The movie F1 with Brad Pitt: 7/10" -> "Movie Reviews")
+- Is it life advice or wisdom? (e.g., "Life advice: get sun in the morning" -> "Life Advice")
+- Is it a recipe or instruction? (e.g., "Mix flour, eggs, milk for pancakes" -> "Recipes")
+- Is it a workout log or fitness tracking? (e.g., "Ran 5 miles in 35 minutes" -> "Workout Log")
+
+If this content suggests a collection pattern, generate:
+1. A collection name that captures the type of content
 2. Rules for what belongs in this collection
-3. A structured entry format with fields
+3. A structured entry format with appropriate fields
 
 Return a JSON object with this structure:
 {
