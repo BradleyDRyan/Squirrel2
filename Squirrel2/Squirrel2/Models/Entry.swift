@@ -52,7 +52,7 @@ struct Entry: Identifiable, Codable {
     
     enum CodingKeys: String, CodingKey {
         case id, userId, spaceIds, conversationId, title, content
-        case type, mood, tags, attachments, location, weather
+        case type, mood, tags, attachments, location, weather, imageUrl
         case createdAt, updatedAt, metadata
     }
     
@@ -70,6 +70,7 @@ struct Entry: Identifiable, Codable {
         attachments = try container.decode([String].self, forKey: .attachments)
         location = try container.decodeIfPresent(Location.self, forKey: .location)
         weather = try container.decodeIfPresent(Weather.self, forKey: .weather)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         // Skip metadata since it can have mixed types
@@ -90,6 +91,7 @@ struct Entry: Identifiable, Codable {
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(location, forKey: .location)
         try container.encodeIfPresent(weather, forKey: .weather)
+        try container.encodeIfPresent(imageUrl, forKey: .imageUrl)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(metadata, forKey: .metadata)
@@ -135,6 +137,7 @@ struct Entry: Identifiable, Codable {
          attachments: [String] = [],
          location: Location? = nil,
          weather: Weather? = nil,
+         imageUrl: String? = nil,
          createdAt: Date = Date(),
          updatedAt: Date = Date(),
          metadata: [String: String]? = nil) {
@@ -150,6 +153,7 @@ struct Entry: Identifiable, Codable {
         self.attachments = attachments
         self.location = location
         self.weather = weather
+        self.imageUrl = imageUrl
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.metadata = metadata

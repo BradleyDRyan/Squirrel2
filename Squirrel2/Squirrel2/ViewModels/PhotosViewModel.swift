@@ -61,6 +61,7 @@ class PhotosViewModel: ObservableObject {
                                 attachments: entry.attachments,
                                 location: entry.location,
                                 weather: entry.weather,
+                                imageUrl: entry.imageUrl,
                                 createdAt: entry.createdAt,
                                 updatedAt: entry.updatedAt,
                                 metadata: entry.metadata
@@ -85,8 +86,8 @@ class PhotosViewModel: ObservableObject {
     }
     
     func getImageURL(for entry: Entry) -> String? {
-        // Get Firebase Storage URL from metadata
-        return entry.metadata?["imageUrl"]
+        // Get Firebase Storage URL from imageUrl field
+        return entry.imageUrl
     }
     
     func getImageData(for entry: Entry) -> Data? {
