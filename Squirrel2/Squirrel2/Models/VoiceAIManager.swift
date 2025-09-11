@@ -105,6 +105,9 @@ class VoiceAIManager: ObservableObject {
             }
             
             let token = try await firebaseUser.getIDToken()
+            // Trim any whitespace or newlines from the token
+            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            
             let urlString = "\(AppConfig.apiBaseURL)/realtime/token"
             print("🔑 Getting ephemeral token from: \(urlString)")
             guard let url = URL(string: urlString) else {
@@ -113,7 +116,7 @@ class VoiceAIManager: ObservableObject {
             
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(cleanToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -361,13 +364,15 @@ class VoiceAIManager: ObservableObject {
             // Get auth token
             guard let firebaseUser = Auth.auth().currentUser else { return }
             let token = try await firebaseUser.getIDToken()
+            // Trim any whitespace or newlines from the token
+            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             
             // Call backend to execute function
             guard let url = URL(string: "\(AppConfig.apiBaseURL)/realtime/function") else { return }
             
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(cleanToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let body = [
