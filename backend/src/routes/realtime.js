@@ -5,7 +5,6 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 const axios = require('axios');
 const { UserTask, Space, Entry, Collection } = require('../models');
-const { generateCollectionRules } = require('../services/collectionRules');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -290,7 +289,7 @@ router.post('/function', verifyToken, async (req, res) => {
         break;
         
       case 'create_collection':
-        // Create a new collection with AI-generated rules
+        // Create a new collection - simplified without AI-generated rules
         const collectionNameToCreate = args.name;
         const collectionDescription = args.description || '';
         
@@ -313,25 +312,19 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        // Generate AI rules for the collection
-        const rules = await generateCollectionRules(collectionNameToCreate, collectionDescription);
-        
-        // Create the collection
+        // Create the collection without AI rules - just the basics
         const newCollection = await Collection.create({
           userId: userId,
           name: collectionNameToCreate,
-          description: collectionDescription || rules.description,
+          description: collectionDescription || '',
           icon: Collection.getDefaultIcon(collectionNameToCreate),
-          rules: rules,
           metadata: { source: 'voice' }
         });
         
+        // Simple response - just the collection name
         result = {
           success: true,
-          collectionId: newCollection.id,
-          collectionName: newCollection.name,
-          message: `Created collection "${newCollection.name}"`,
-          rules: rules
+          collection: newCollection.name
         };
         break;
         

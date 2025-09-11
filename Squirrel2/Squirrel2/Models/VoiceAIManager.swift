@@ -105,19 +105,7 @@ class VoiceAIManager: ObservableObject {
             }
             
             let token = try await firebaseUser.getIDToken()
-            // Trim any whitespace or newlines from the token
-            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // Debug: Check if token contains any special characters
-            if token != cleanToken {
-                print("⚠️ Token had whitespace/newlines that were trimmed")
-            }
-            
-            // Additional safety: Remove any non-ASCII characters
-            let safeToken = cleanToken.filter { $0.isASCII }
-            if safeToken != cleanToken {
-                print("⚠️ Token had non-ASCII characters that were removed")
-            }
+            let safeToken = token.sanitizedForHTTPHeader
             
             let urlString = "\(AppConfig.apiBaseURL)/realtime/token"
             print("🔑 Getting ephemeral token from: \(urlString)")
@@ -127,7 +115,7 @@ class VoiceAIManager: ObservableObject {
             
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.setValue("Bearer \(cleanToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(safeToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -375,15 +363,14 @@ class VoiceAIManager: ObservableObject {
             // Get auth token
             guard let firebaseUser = Auth.auth().currentUser else { return }
             let token = try await firebaseUser.getIDToken()
-            // Trim any whitespace or newlines from the token
-            let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            let safeToken = token.sanitizedForHTTPHeader
             
             // Call backend to execute function
             guard let url = URL(string: "\(AppConfig.apiBaseURL)/realtime/function") else { return }
             
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.setValue("Bearer \(cleanToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("Bearer \(safeToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             
             let body = [
