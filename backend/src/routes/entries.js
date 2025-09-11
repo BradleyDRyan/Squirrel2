@@ -245,7 +245,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     console.log(`[VOICE-ENTRY] Step 1 Complete: Created entry ${entry.id}`);
     
     // Queue inference for background processing
-    console.log(`[VOICE-ENTRY] Step 2: Queueing collection inference for entry ${entry.id}`);
+    console.log(`[VOICE-ENTRY] Step 2: Starting collection inference process for entry ${entry.id}`);
     
     try {
       const { enqueueInference } = require('../services/queue');
