@@ -257,7 +257,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
         console.log(`[VOICE-ENTRY] Inference job queued with ID: ${jobId}`);
       } else {
         // Fallback to inline processing if QStash not configured
-        console.log(`[VOICE-ENTRY] QStash not configured, processing inline`);
+        console.log(`[VOICE-ENTRY] QStash not configured, processing inline for entry ${entry.id}`);
         
         const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
         const { Collection, CollectionEntry } = require('../models');
