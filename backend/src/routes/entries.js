@@ -223,10 +223,25 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     console.log(`[VOICE-ENTRY] Step 1: Creating entry from voice: "${content.substring(0, 50)}..."`);
     
     // Get or create default space
-    const { Space } = require('../models');
-    const defaultSpace = await Space.findDefaultSpace(req.user.uid) || 
-                         await Space.createDefaultSpace(req.user.uid);
-    const spaceIds = defaultSpace ? [defaultSpace.id] : [];
+    let defaultSpace;
+    let spaceIds = [];
+    
+    try {
+      const { Space } = require('../models');
+      console.log(`[VOICE-ENTRY] Step 1.1: Finding default space for user ${req.user.uid}`);
+      defaultSpace = await Space.findDefaultSpace(req.user.uid);
+      
+      if (!defaultSpace) {
+        console.log(`[VOICE-ENTRY] Step 1.2: Creating default space for user ${req.user.uid}`);
+        defaultSpace = await Space.createDefaultSpace(req.user.uid);
+      }
+      
+      spaceIds = defaultSpace ? [defaultSpace.id] : [];
+      console.log(`[VOICE-ENTRY] Step 1.3: Space IDs: ${JSON.stringify(spaceIds)}`);
+    } catch (spaceError) {
+      console.error(`[VOICE-ENTRY] Step 1 Space Error:`, spaceError.message);
+      // Continue without a space - it's optional
+    }
     
     // Create the entry
     const entryData = {
@@ -241,23 +256,42 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       }
     };
     
-    const entry = await Entry.create(entryData);
-    console.log(`[VOICE-ENTRY] Step 1 Complete: Created entry ${entry.id}`);
+    console.log(`[VOICE-ENTRY] Step 1.4: Creating entry with data:`, JSON.stringify({
+      ...entryData,
+      content: entryData.content.substring(0, 50) + '...'
+    }));
+    
+    let entry;
+    try {
+      entry = await Entry.create(entryData);
+      console.log(`[VOICE-ENTRY] Step 1 Complete: Created entry ${entry.id}`);
+    } catch (entryError) {
+      console.error(`[VOICE-ENTRY] Step 1 Entry Creation Error:`, entryError.message);
+      console.error(`[VOICE-ENTRY] Error stack:`, entryError.stack);
+      throw entryError; // Re-throw to be caught by outer try-catch
+    }
     
     // Queue inference for background processing
     console.log(`[VOICE-ENTRY] Step 2: Starting collection inference process for entry ${entry.id}`);
     
     try {
-      const { enqueueInference } = require('../services/queue');
+      console.log(`[VOICE-ENTRY] Step 2.1: Checking QStash configuration...`);
+      console.log(`[VOICE-ENTRY] Step 2.2: QSTASH_TOKEN present: ${!!process.env.QSTASH_TOKEN}`);
+      console.log(`[VOICE-ENTRY] Step 2.3: NODE_ENV: ${process.env.NODE_ENV}`);
       
       // Check if we have QStash configured
       if (process.env.QSTASH_TOKEN) {
         try {
+          console.log(`[VOICE-ENTRY] Step 2.4: Loading queue service...`);
+          const { enqueueInference } = require('../services/queue');
+          console.log(`[VOICE-ENTRY] Step 2.5: Queue service loaded, calling enqueueInference...`);
+          
           // Queue the inference job for background processing
           const jobId = await enqueueInference(entry.id, req.user.uid, content);
           console.log(`[VOICE-ENTRY] Step 2 Complete: Inference job queued with ID: ${jobId}`);
         } catch (qstashError) {
           console.error(`[VOICE-ENTRY] Step 2 QStash Error:`, qstashError.message);
+          console.error(`[VOICE-ENTRY] Step 2 QStash Stack:`, qstashError.stack);
           console.log(`[VOICE-ENTRY] Step 2 Fallback: QStash failed, processing inline for entry ${entry.id}`);
           throw qstashError; // Re-throw to trigger inline processing below
         }
@@ -328,6 +362,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       // Continue - entry is already created
     }
     
+    console.log(`[VOICE-ENTRY] Step 3: Sending successful response for entry ${entry.id}`);
     res.status(201).json({
       success: true,
       entryId: entry.id,
