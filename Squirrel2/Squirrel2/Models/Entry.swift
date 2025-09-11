@@ -13,6 +13,7 @@ struct Entry: Identifiable, Codable {
     var attachments: [String]
     var location: Location?
     var weather: Weather?
+    var imageUrl: String?
     let createdAt: Date
     var updatedAt: Date
     var metadata: [String: String]?
