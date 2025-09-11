@@ -244,77 +244,80 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     const entry = await Entry.create(entryData);
     console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
     
-    // Trigger inference directly - simpler approach
-    console.log(`[VOICE-ENTRY] Triggering collection inference for entry ${entry.id}`);
+    // Queue inference for background processing
+    console.log(`[VOICE-ENTRY] Queueing collection inference for entry ${entry.id}`);
     
-    // Run inference inline since we already have the user context
     try {
-      const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
-      const { Collection, CollectionEntry } = require('../models');
+      const { enqueueInference } = require('../services/queue');
       
-      // Get existing collections for this user
-      const existingCollections = await Collection.findByUserId(req.user.uid);
-      const collectionNames = existingCollections.map(c => c.name);
-      
-      console.log(`[VOICE-ENTRY] Found ${existingCollections.length} existing collections for user`);
-      
-      // Run inference
-      const inference = await inferCollectionFromContent(content, collectionNames);
-      
-      if (inference && inference.shouldCreateCollection) {
-        console.log(`[VOICE-ENTRY] Inference suggests collection: ${inference.collectionName}`);
-        
-        // Check if collection exists
-        let collection = await Collection.findByName(req.user.uid, inference.collectionName);
-        
-        if (!collection) {
-          console.log(`[VOICE-ENTRY] Creating new collection: ${inference.collectionName}`);
-          
-          // Generate detailed collection structure
-          const details = await generateCollectionDetails(
-            inference.collectionName,
-            inference.description,
-            content
-          );
-          
-          collection = await Collection.create({
-            userId: req.user.uid,
-            name: details.name,
-            description: details.description,
-            icon: details.icon || '📝',
-            color: details.color || '#6366f1',
-            rules: details.rules,
-            entryFormat: details.entryFormat,
-            metadata: { 
-              source: 'voice_inference',
-              firstEntry: entry.id,
-              inferredAt: new Date()
-            }
-          });
-          
-          console.log(`[VOICE-ENTRY] Created collection ${collection.id}`);
-        }
-        
-        // Create CollectionEntry with formatted data
-        if (collection && inference.extractedData) {
-          const collectionEntry = await CollectionEntry.create({
-            userId: req.user.uid,
-            collectionId: collection.id,
-            entryId: entry.id,
-            formattedData: inference.extractedData || {},
-            metadata: {
-              source: 'voice_inference',
-              inferredAt: new Date()
-            }
-          });
-          
-          console.log(`[VOICE-ENTRY] Created CollectionEntry ${collectionEntry.id}`);
-        }
+      // Check if we have QStash configured
+      if (process.env.QSTASH_TOKEN) {
+        // Queue the inference job for background processing
+        const jobId = await enqueueInference(entry.id, req.user.uid, content);
+        console.log(`[VOICE-ENTRY] Inference job queued with ID: ${jobId}`);
       } else {
-        console.log(`[VOICE-ENTRY] No collection pattern detected for entry ${entry.id}`);
+        // Fallback to inline processing if QStash not configured
+        console.log(`[VOICE-ENTRY] QStash not configured, processing inline`);
+        
+        const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+        const { Collection, CollectionEntry } = require('../models');
+        
+        // Get existing collections for this user
+        const existingCollections = await Collection.findByUserId(req.user.uid);
+        const collectionNames = existingCollections.map(c => c.name);
+        
+        // Run inference
+        const inference = await inferCollectionFromContent(content, collectionNames);
+        
+        if (inference && inference.shouldCreateCollection) {
+          console.log(`[VOICE-ENTRY] Inference suggests collection: ${inference.collectionName}`);
+          
+          // Check if collection exists
+          let collection = await Collection.findByName(req.user.uid, inference.collectionName);
+          
+          if (!collection) {
+            // Generate detailed collection structure
+            const details = await generateCollectionDetails(
+              inference.collectionName,
+              inference.description,
+              content
+            );
+            
+            collection = await Collection.create({
+              userId: req.user.uid,
+              name: details.name,
+              description: details.description,
+              icon: details.icon || '📝',
+              color: details.color || '#6366f1',
+              rules: details.rules,
+              entryFormat: details.entryFormat,
+              metadata: { 
+                source: 'voice_inference',
+                firstEntry: entry.id,
+                inferredAt: new Date()
+              }
+            });
+            
+            console.log(`[VOICE-ENTRY] Created collection ${collection.id}`);
+          }
+          
+          // Create CollectionEntry with formatted data
+          if (collection && inference.extractedData) {
+            await CollectionEntry.create({
+              userId: req.user.uid,
+              collectionId: collection.id,
+              entryId: entry.id,
+              formattedData: inference.extractedData || {},
+              metadata: {
+                source: 'voice_inference',
+                inferredAt: new Date()
+              }
+            });
+          }
+        }
       }
     } catch (inferenceError) {
-      console.error(`[VOICE-ENTRY] Inference error:`, inferenceError.message);
+      console.error(`[VOICE-ENTRY] Inference queueing error:`, inferenceError.message);
       // Continue - entry is already created
     }
     
