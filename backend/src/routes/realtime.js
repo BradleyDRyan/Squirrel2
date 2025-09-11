@@ -233,14 +233,18 @@ router.post('/function', verifyToken, async (req, res) => {
         body = {
           content: args.content
         };
+        console.log(`[REALTIME-FUNCTION] extract_entries content: "${args.content?.substring(0, 50)}..."`);
         break;
     }
     
     // Get the user's Firebase token from the request
     const token = req.headers.authorization?.split(' ')[1];
+    console.log(`[REALTIME-FUNCTION] Token present: ${!!token}`);
+    console.log(`[REALTIME-FUNCTION] Request body:`, JSON.stringify(body).substring(0, 100));
     
     // Make the API call using the user's token
     try {
+      console.log(`[REALTIME-FUNCTION] Making POST request to ${apiUrl}`);
       const response = await axios.post(apiUrl, body, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -248,6 +252,8 @@ router.post('/function', verifyToken, async (req, res) => {
         }
       });
       
+      console.log(`[REALTIME-FUNCTION] Response status: ${response.status}`);
+      console.log(`[REALTIME-FUNCTION] Response data:`, JSON.stringify(response.data).substring(0, 200));
       console.log(`[REALTIME-FUNCTION] ${name} completed successfully`);
       res.json(response.data);
     } catch (apiError) {
