@@ -18,6 +18,7 @@ struct CameraPreviewView: UIViewRepresentable {
         let parent: CameraPreviewView
         var captureSession: AVCaptureSession?
         var photoOutput: AVCapturePhotoOutput?
+        var isProcessingPhoto = false
         
         init(_ parent: CameraPreviewView) {
             self.parent = parent
@@ -69,6 +70,13 @@ struct CameraPreviewView: UIViewRepresentable {
                 return
             }
             
+            // Prevent multiple captures
+            guard !isProcessingPhoto else {
+                print("Already processing a photo, skipping capture")
+                return
+            }
+            
+            isProcessingPhoto = true
             let settings = AVCapturePhotoSettings()
             settings.flashMode = .off
             photoOutput.capturePhoto(with: settings, delegate: self)
@@ -76,14 +84,24 @@ struct CameraPreviewView: UIViewRepresentable {
         
         // AVCapturePhotoCaptureDelegate
         func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+            defer {
+                isProcessingPhoto = false
+            }
+            
             if let error = error {
                 parent.onError("Failed to capture photo: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.parent.isCapturing = false
+                }
                 return
             }
             
             guard let imageData = photo.fileDataRepresentation(),
                   let image = UIImage(data: imageData) else {
                 parent.onError("Failed to process photo")
+                DispatchQueue.main.async {
+                    self.parent.isCapturing = false
+                }
                 return
             }
             
@@ -124,8 +142,8 @@ struct CameraPreviewView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: UIView, context: Context) {
-        // Handle capture trigger
-        if isCapturing {
+        // Handle capture trigger - only capture if isCapturing is true and we're not already processing
+        if isCapturing && !context.coordinator.isProcessingPhoto {
             context.coordinator.capturePhoto()
         }
         

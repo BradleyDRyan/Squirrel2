@@ -139,10 +139,10 @@ Respond in JSON format:
       type: 'photo',
       tags: ['photo'],
       spaceIds: spaceIds,
+      imageUrl: publicUrl, // Store Firebase Storage URL at top level
       metadata: { 
         source: 'camera',
         hasImage: true,
-        imageUrl: publicUrl, // Store Firebase Storage URL
         storagePath: fileName // Store the path for potential deletion later
       }
     });

@@ -20,6 +20,7 @@ class Entry {
     this.attachments = data.attachments || [];
     this.location = data.location || null;
     this.weather = data.weather || null;
+    this.imageUrl = data.imageUrl || null; // Add imageUrl field
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
     this.metadata = data.metadata || {};
@@ -44,6 +45,7 @@ class Entry {
       attachments: entry.attachments,
       location: entry.location,
       weather: entry.weather,
+      imageUrl: entry.imageUrl,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
       metadata: entry.metadata
