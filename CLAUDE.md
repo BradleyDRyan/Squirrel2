@@ -1,11 +1,35 @@
 # Claude Instructions for Squirrel2 Development
 
-## 🚨 CRITICAL: Architecture Rules
+## 🏗️ Architecture Overview
 
-### Hybrid Approach: Backend API + Real-time Updates
-- **WRITE OPERATIONS**: Always use the Node.js backend API at `https://backend-sigma-drab.vercel.app`
-- **READ OPERATIONS**: Use Firestore snapshot listeners for real-time updates
-- **RATIONALE**: This hybrid approach provides real-time updates while maintaining security and business logic in the backend
+### Technology Stack
+- **iOS App**: SwiftUI + MVVM pattern
+- **Backend**: Node.js API (Vercel deployment)
+- **Database**: Firebase Firestore
+- **Real-time**: Firestore snapshot listeners
+- **Authentication**: Firebase Auth
+
+### Hybrid Architecture Approach
+We use a flexible, pragmatic approach that combines the best of both worlds:
+
+1. **Backend API** (`https://backend-sigma-drab.vercel.app`)
+   - All WRITE operations (create, update, delete)
+   - Complex business logic and validation
+   - Data aggregation and processing
+   - Security-critical operations
+
+2. **Firebase Direct Access** (iOS App)
+   - READ operations via Firestore snapshot listeners
+   - Real-time updates for live UI
+   - Authentication state management
+   - Optimistic UI updates
+
+This hybrid approach provides:
+- ✅ Real-time updates without polling
+- ✅ Security through backend validation
+- ✅ Reduced latency for reads
+- ✅ Centralized business logic
+- ✅ Scalable architecture
 
 ### Real-time Updates Pattern
 ```swift
@@ -60,19 +84,59 @@ db.collection("anything").document(id).setData(data)
 
 ```
 Squirrel2/
-├── backend/                 # Node.js backend (Vercel)
+├── backend/                    # Node.js backend (Vercel)
 │   ├── src/
-│   │   ├── routes/         # API endpoints - CHECK HERE FIRST
-│   │   ├── models/         # Data models
-│   │   └── middleware/     # Auth & validation
-│   └── api/               # Vercel deployment
-├── Squirrel2/             # iOS app
-│   ├── Models/
-│   ├── Views/
-│   ├── Services/
-│   └── Config/
-└── docs/
+│   │   ├── routes/            # API endpoints - CHECK HERE FIRST
+│   │   ├── models/            # Data models
+│   │   └── middleware/        # Auth & validation
+│   └── api/                   # Vercel deployment
+├── Squirrel2/                 # iOS app (SwiftUI + MVVM)
+│   ├── Models/                # Data models & structs
+│   ├── Views/                 # SwiftUI views (UI only)
+│   ├── ViewModels/            # ViewModels (business logic & data)
+│   ├── Services/              # API & Firebase services
+│   └── Config/                # App configuration
+└── docs/                      # Documentation
 ```
+
+## iOS App Architecture (MVVM)
+
+### ViewModels Pattern
+All views that need data should use ViewModels:
+
+```swift
+// ViewModel handles data and business logic
+@MainActor
+class CollectionsViewModel: ObservableObject {
+    @Published var collections: [Collection] = []
+    @Published var isLoading = true
+    
+    private var listener: ListenerRegistration?
+    
+    func startListening(userId: String) {
+        // Set up Firestore snapshot listener
+    }
+    
+    func stopListening() {
+        listener?.remove()
+    }
+}
+
+// View handles UI only
+struct CollectionsView: View {
+    @StateObject private var viewModel = CollectionsViewModel()
+    
+    var body: some View {
+        // Pure UI code, uses viewModel.collections
+    }
+}
+```
+
+### Key MVVM Principles
+1. **Views**: UI only, no business logic
+2. **ViewModels**: Data fetching, state management, business logic
+3. **Models**: Pure data structures
+4. **Services**: Reusable API/Firebase operations
 
 ## Available Backend Endpoints
 
@@ -100,23 +164,85 @@ cd backend && vercel --prod
 
 ⚠️ **CRITICAL**: Vercel deploys from the Git repository, not local files. Always commit and push before running `vercel --prod` or your changes won't be deployed!
 
-## Key Principles
+## Key Development Principles
 
-1. **Security First**: All data operations go through authenticated backend
-2. **Single Source of Truth**: Backend handles all business logic
-3. **Consistency**: Use existing patterns from the codebase
-4. **API Documentation**: Check backend route files for endpoint details
+### 1. Security & Data Flow
+- **WRITES** go through backend API (validation, business logic)
+- **READS** use Firestore snapshots (real-time updates)
+- **AUTH** always verify user tokens in backend
+- **VALIDATION** happens in backend, not iOS
+
+### 2. Code Organization (MVVM)
+- **Views** = UI only, no business logic
+- **ViewModels** = Data management, state, listeners
+- **Models** = Pure data structures (Codable)
+- **Services** = Reusable API/Firebase operations
+
+### 3. Real-time Updates
+```swift
+// In ViewModel
+private var listener: ListenerRegistration?
+
+func startListening(userId: String) {
+    listener = db.collection("items")
+        .whereField("userId", isEqualTo: userId)
+        .addSnapshotListener { [weak self] snapshot, error in
+            // Handle updates
+        }
+}
+
+func stopListening() {
+    listener?.remove()
+}
+```
+
+### 4. Backend Operations
+```swift
+// For WRITE operations - use backend API
+let token = try await user.getIDToken()
+guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections") else { return }
+var request = URLRequest(url: url)
+request.httpMethod = "POST"
+request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+```
 
 ## When Working on Features
 
-1. **Read** `BACKEND_API_GUIDELINES.md` first
-2. **Check** backend routes for existing endpoints
-3. **Create** backend endpoints if needed
-4. **Implement** iOS code using backend API
-5. **Never** write direct Firestore operations in iOS
+### For NEW Features:
+1. **Determine** if it needs real-time updates
+2. **Create** ViewModel if handling data
+3. **Check** backend routes for existing endpoints
+4. **Create** backend endpoint for write operations
+5. **Implement** Firestore listener for reads (if real-time needed)
+6. **Test** both online and offline scenarios
+
+### For EXISTING Features:
+1. **Check** if ViewModel exists
+2. **Review** current data flow pattern
+3. **Maintain** consistency with existing approach
+4. **Update** CLAUDE.md if patterns change
+
+## Common Patterns
+
+### Creating a New View with Data:
+1. Create Model (if needed)
+2. Create ViewModel with Firestore listener
+3. Create View using ViewModel
+4. Add backend endpoint for modifications
+
+### Adding Real-time Updates:
+1. Add Firestore listener in ViewModel
+2. Use `@Published` properties
+3. Clean up in `stopListening()`
+4. Handle errors gracefully
 
 ## Remember
 
-> "The backend is the brain, iOS is just the UI"
+> "Backend for writes, Firebase for reads, ViewModels for logic, Views for UI"
 
-All data operations, validation, and business logic belong in the backend.
+This flexible approach gives us:
+- 🚀 Real-time updates
+- 🔒 Secure write operations  
+- 🧪 Testable code
+- 🎯 Clear separation of concerns
+- 📱 Responsive UI

@@ -67,7 +67,7 @@ class CollectionDetailViewModel: ObservableObject {
                     }
                     
                     // Create a dictionary for JSON decoding
-                    var entryData: [String: Any] = [
+                    let entryData: [String: Any] = [
                         "id": document.documentID,
                         "userId": userId,
                         "collectionId": self.collectionId,
@@ -113,6 +113,7 @@ class CollectionDetailViewModel: ObservableObject {
     }
     
     deinit {
-        stopListening()
+        // Cleanup is handled by the listener itself when the object is deallocated
+        entriesListener?.remove()
     }
 }

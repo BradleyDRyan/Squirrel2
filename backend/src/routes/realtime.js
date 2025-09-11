@@ -3,6 +3,7 @@ const router = express.Router();
 const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
+const axios = require('axios');
 const { UserTask, Space, Entry, Collection } = require('../models');
 const { generateCollectionRules } = require('../services/collectionRules');
 
@@ -67,13 +68,7 @@ router.post('/token', verifyToken, async (req, res) => {
     const collectionNames = collections.map(c => c.name).join(', ') || 'no collections yet';
 
     // Create an ephemeral token using OpenAI's REST API
-    const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+    const response = await axios.post('https://api.openai.com/v1/realtime/sessions', {
         model: 'gpt-realtime',
         voice: 'shimmer',
         instructions: `You are a helpful assistant. Be concise and natural.
@@ -178,18 +173,14 @@ For tasks and todos, use create_task.`,
             }
           }
         ]
-      })
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('OpenAI API error:', error);
-      return res.status(response.status).json({ 
-        error: 'Failed to create session' 
+      }, {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
       });
-    }
-
-    const data = await response.json();
+    
+    const data = response.data;
     
     res.json({ 
       success: true,
@@ -200,8 +191,18 @@ For tasks and todos, use create_task.`,
     });
   } catch (error) {
     console.error('Token creation error:', error);
+    console.error('Error response:', error.response?.data);
+    console.error('Error status:', error.response?.status);
+    
+    // More detailed error response
+    const errorMessage = error.response?.data?.error?.message || 
+                        error.response?.data?.error || 
+                        error.message || 
+                        'Failed to create ephemeral token';
+    
     res.status(500).json({ 
-      error: 'Failed to create ephemeral token' 
+      error: errorMessage,
+      details: error.response?.data
     });
   }
 });

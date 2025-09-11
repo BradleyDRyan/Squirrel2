@@ -2,231 +2,303 @@
 //  VoiceDefaultView.swift
 //  Squirrel2
 //
-//  Voice interface with real-time API and camera button
+//  Voice mode default view with camera support
 //
 
 import SwiftUI
-import PhotosUI
+import FirebaseAuth
 
+// Voice mode as default view
 struct VoiceDefaultView: View {
+    @StateObject private var voiceAI = VoiceAIManager.shared
+    @State private var isRecording = false
+    @State private var showError = false
+    @State private var showingCamera = false
+    @State private var showingPhotoPicker = false
     @Binding var conversation: ChatConversation?
     @Binding var messages: [ChatMessage]
     let onSwitchToChat: () -> Void
     let onDismiss: () -> Void
     
-    @StateObject private var voiceManager = VoiceAIManager.shared
-    @State private var isConnecting = false
-    @State private var connectionError: String?
-    @State private var showingCamera = false
-    @State private var showingPhotoPicker = false
-    @State private var selectedPhoto: PhotosPickerItem?
-    
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button("Close") {
+        ZStack {
+            backgroundGradient
+            
+            mainContent
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(voiceAI.error ?? "An unknown error occurred")
+        }
+        .onChange(of: voiceAI.error) { _, newError in
+            showError = newError != nil
+        }
+        .onChange(of: voiceAI.shouldDismiss) { _, shouldDismiss in
+            if shouldDismiss {
+                Task {
+                    await voiceAI.closeVoiceMode()
                     onDismiss()
                 }
-                .foregroundColor(.squirrelPrimary)
-                
-                Spacer()
-                
-                // Connection status
-                if voiceManager.isConnected {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                        Text("Connected")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else if isConnecting {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Connecting...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Spacer()
-                
-                Button(action: onSwitchToChat) {
-                    Image(systemName: "text.bubble")
-                        .foregroundColor(.squirrelPrimary)
-                }
             }
-            .padding()
-            
-            Spacer()
-            
-            // Main voice UI
-            VStack(spacing: 40) {
-                // Animated voice indicator
-                ZStack {
-                    if voiceManager.isListening {
-                        // Pulsing circles when listening
-                        ForEach(0..<3) { index in
-                            Circle()
-                                .stroke(Color.squirrelPrimary.opacity(0.3), lineWidth: 2)
-                                .frame(width: 150 + CGFloat(index * 50), 
-                                       height: 150 + CGFloat(index * 50))
-                                .scaleEffect(voiceManager.isListening ? 1.2 : 1.0)
-                                .opacity(voiceManager.isListening ? 0.0 : 0.5)
-                                .animation(
-                                    Animation.easeOut(duration: 1.5)
-                                        .repeatForever(autoreverses: false)
-                                        .delay(Double(index) * 0.3),
-                                    value: voiceManager.isListening
-                                )
-                        }
-                    }
-                    
-                    // Center microphone icon
-                    Circle()
-                        .fill(voiceManager.isListening ? Color.squirrelPrimary : Color.gray.opacity(0.3))
-                        .frame(width: 120, height: 120)
-                        .overlay(
-                            Image(systemName: voiceManager.isListening ? "mic.fill" : "mic.slash.fill")
-                                .font(.system(size: 50))
-                                .foregroundColor(.white)
-                        )
-                        .scaleEffect(voiceManager.isSpeaking ? 0.95 : 1.0)
-                        .animation(.easeInOut(duration: 0.2), value: voiceManager.isSpeaking)
-                }
-                
-                // Status text
-                VStack(spacing: 8) {
-                    if let error = connectionError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    } else if voiceManager.isSpeaking {
-                        Text("Speaking...")
-                            .font(.headline)
-                            .foregroundColor(.squirrelPrimary)
-                    } else if voiceManager.isListening {
-                        Text("Listening...")
-                            .font(.headline)
-                            .foregroundColor(.squirrelPrimary)
-                    } else if voiceManager.isConnected {
-                        Text("Tap to start")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Connecting to voice assistant...")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    if let transcript = voiceManager.lastTranscript, !transcript.isEmpty {
-                        Text(transcript)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                            .lineLimit(3)
-                    }
-                }
-                
-                // Action buttons
-                HStack(spacing: 40) {
-                    // Camera button
-                    Button(action: {
-                        showingCamera = true
-                    }) {
-                        VStack(spacing: 8) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(.squirrelPrimary)
-                                .frame(width: 60, height: 60)
-                                .background(Color.squirrelPrimary.opacity(0.1))
-                                .clipShape(Circle())
-                            
-                            Text("Camera")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    // Photo picker button
-                    PhotosPicker(selection: $selectedPhoto,
-                                matching: .images) {
-                        VStack(spacing: 8) {
-                            Image(systemName: "photo.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(.squirrelPrimary)
-                                .frame(width: 60, height: 60)
-                                .background(Color.squirrelPrimary.opacity(0.1))
-                                .clipShape(Circle())
-                            
-                            Text("Photos")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-            .padding()
-            
-            Spacer()
         }
-        .background(Color.squirrelBackground)
         .onAppear {
-            connectToVoiceAPI()
+            Task {
+                do {
+                    print("🚀 Starting voice mode...")
+                    
+                    if !voiceAI.isConnected {
+                        try await voiceAI.startHandlingVoice()
+                        print("✅ Voice handling started")
+                    } else {
+                        print("✅ Already connected to Realtime API")
+                    }
+                    
+                    try await voiceAI.startListening()
+                    isRecording = true
+                    
+                    print("🎙️ Voice mode ready")
+                } catch {
+                    print("❌ Failed to start voice mode: \(error)")
+                    voiceAI.error = error.localizedDescription
+                    isRecording = false
+                }
+            }
         }
         .onDisappear {
             Task {
-                await voiceManager.disconnect()
+                // Merge voice messages back into chat
+                let voiceMessages = VoiceAIManager.shared.getVoiceMessages()
+                if !voiceMessages.isEmpty {
+                    messages.append(contentsOf: voiceMessages)
+                    print("✅ Merged \(voiceMessages.count) voice messages into chat")
+                }
             }
         }
         .sheet(isPresented: $showingCamera) {
             CameraView { image in
-                handleCapturedPhoto(image)
-            }
-        }
-        .onChange(of: selectedPhoto) { _, newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
-                    handleCapturedPhoto(uiImage)
+                Task {
+                    await processPhoto(image)
                 }
             }
         }
     }
     
-    private func connectToVoiceAPI() {
-        isConnecting = true
-        connectionError = nil
-        
-        Task {
-            do {
-                let convId = conversation?.id ?? UUID().uuidString
-                await voiceManager.initialize(withChatHistory: messages, conversationId: convId)
+    private var backgroundGradient: some View {
+        LinearGradient(
+            colors: [Color.squirrelWarmBackground, Color.squirrelWarmGrayBackground],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+    
+    private var mainContent: some View {
+        VStack(spacing: 20) {
+            // Header
+            HStack {
+                Button("Cancel") {
+                    Task {
+                        await voiceAI.closeVoiceMode()
+                        onDismiss()
+                    }
+                }
+                .foregroundColor(.squirrelTextSecondary)
                 
-                if !voiceManager.isConnected {
-                    try await voiceManager.connect()
+                Spacer()
+                
+                Text("Voice Mode")
+                    .font(.squirrelHeadline)
+                    .foregroundColor(.squirrelTextPrimary)
+                
+                Spacer()
+                
+                Circle()
+                    .fill(voiceAI.isConnected ? Color.green : Color.red)
+                    .frame(width: 10, height: 10)
+            }
+            .padding(.horizontal)
+            .padding(.top)
+            
+            Spacer()
+            
+            // Current transcript display
+            VStack(spacing: 20) {
+                if voiceAI.isListening {
+                    HStack(spacing: 12) {
+                        Image(systemName: "mic.fill")
+                            .foregroundColor(.red)
+                            .font(.title3)
+                            .symbolEffect(.pulse)
+                        Text("Listening...")
+                            .font(.squirrelHeadline)
+                            .foregroundColor(.squirrelTextPrimary)
+                    }
+                } else if voiceAI.isConnected {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.title3)
+                        Text("Ready")
+                            .font(.squirrelHeadline)
+                            .foregroundColor(.squirrelTextPrimary)
+                    }
                 }
                 
-                await MainActor.run {
-                    isConnecting = false
+                if !voiceAI.currentTranscript.isEmpty {
+                    Text(voiceAI.currentTranscript)
+                        .font(.squirrelBody)
+                        .foregroundColor(.squirrelTextSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
                 }
-            } catch {
-                await MainActor.run {
-                    isConnecting = false
-                    connectionError = "Failed to connect: \(error.localizedDescription)"
+                
+                if let lastAssistantMessage = voiceAI.messages.last(where: { !$0.isFromUser }) {
+                    let content = lastAssistantMessage.content
+                    
+                    if !content.isEmpty {
+                        Text(content)
+                            .font(.squirrelBody)
+                            .foregroundColor(.squirrelTextPrimary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                            .padding(.vertical, 16)
+                            .background(Color.squirrelSurfaceBackground)
+                            .cornerRadius(16)
+                    }
                 }
             }
+            .padding()
+            .frame(maxHeight: 300)
+            
+            // Voice visualization
+            if isRecording {
+                VoiceWaveformView()
+                    .frame(height: 60)
+                    .padding(.horizontal)
+            }
+            
+            // Main recording button
+            Button(action: toggleRecording) {
+                ZStack {
+                    if isRecording {
+                        Circle()
+                            .stroke(Color.red.opacity(0.3), lineWidth: 2)
+                            .frame(width: 140, height: 140)
+                            .scaleEffect(isRecording ? 1.2 : 1.0)
+                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isRecording)
+                        
+                        Circle()
+                            .stroke(Color.red.opacity(0.2), lineWidth: 2)
+                            .frame(width: 160, height: 160)
+                            .scaleEffect(isRecording ? 1.3 : 1.0)
+                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isRecording)
+                    }
+                    
+                    Circle()
+                        .fill(isRecording ? Color.red : Color.squirrelPrimary)
+                        .frame(width: 120, height: 120)
+                        .overlay(
+                            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.white)
+                        )
+                        .scaleEffect(isRecording ? 1.1 : 1.0)
+                        .animation(.easeInOut(duration: 0.2), value: isRecording)
+                }
+            }
+            .disabled(!voiceAI.isConnected && !isRecording)
+            
+            Text(statusText)
+                .font(.squirrelCallout)
+                .foregroundColor(.squirrelTextSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            if voiceAI.messages.last?.isFromUser == false {
+                Button(action: {
+                    Task {
+                        await voiceAI.interrupt()
+                    }
+                }) {
+                    Text("Interrupt")
+                        .font(.squirrelButtonSecondary)
+                        .foregroundColor(.squirrelSecondary)
+                }
+            }
+            
+            // Camera button
+            HStack(spacing: 40) {
+                Button(action: {
+                    showingCamera = true
+                }) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.squirrelPrimary)
+                            .frame(width: 60, height: 60)
+                            .background(Color.squirrelPrimary.opacity(0.1))
+                            .clipShape(Circle())
+                        
+                        Text("Camera")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.bottom, 20)
+            
+            Spacer()
+            
+            // Switch to Chat Mode button at the bottom
+            Button(action: {
+                onSwitchToChat()
+            }) {
+                HStack {
+                    Image(systemName: "text.bubble.fill")
+                        .font(.system(size: 18))
+                    Text("Switch to Chat")
+                        .font(.squirrelButtonSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.squirrelSurfaceBackground)
+                .foregroundColor(.squirrelTextPrimary)
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.squirrelPrimary.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 20)
         }
     }
     
-    private func handleCapturedPhoto(_ image: UIImage) {
-        // Process and save the photo
+    private var statusText: String {
+        if !voiceAI.isConnected {
+            return "Connecting..."
+        } else if isRecording {
+            return "Listening... Tap to stop"
+        } else {
+            return "Tap to start speaking"
+        }
+    }
+    
+    private func toggleRecording() {
         Task {
-            await processPhoto(image)
+            if isRecording {
+                await voiceAI.stopListening()
+                isRecording = false
+            } else {
+                do {
+                    try await voiceAI.startListening()
+                    isRecording = true
+                } catch {
+                    print("Error starting recording: \(error)")
+                    voiceAI.error = error.localizedDescription
+                }
+            }
         }
     }
     
@@ -236,7 +308,7 @@ struct VoiceDefaultView: View {
             return
         }
         
-        guard let user = VoiceAIManager.shared.firebaseManager?.currentUser else {
+        guard let user = FirebaseManager.shared.currentUser else {
             print("No authenticated user")
             return
         }
@@ -275,11 +347,9 @@ struct VoiceDefaultView: View {
                         print("✅ Photo processed and saved to collection: \(responseDict["collectionName"] ?? "unknown")")
                         
                         // Show success feedback
-                        await MainActor.run {
-                            // You could add a toast or alert here
-                            if let message = responseDict["message"] as? String {
-                                print(message)
-                            }
+                        if let message = responseDict["message"] as? String {
+                            print(message)
+                            // You could update the UI here to show success
                         }
                     }
                 } else {

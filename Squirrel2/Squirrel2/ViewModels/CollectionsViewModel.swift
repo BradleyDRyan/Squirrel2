@@ -129,6 +129,7 @@ class CollectionsViewModel: ObservableObject {
     }
     
     deinit {
-        stopListening()
+        // Cleanup is handled by the listener itself when the object is deallocated
+        collectionsListener?.remove()
     }
 }

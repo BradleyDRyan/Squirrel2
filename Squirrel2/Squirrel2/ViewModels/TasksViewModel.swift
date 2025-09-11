@@ -95,6 +95,7 @@ class TasksViewModel: ObservableObject {
     }
     
     deinit {
-        stopListening()
+        // Cleanup is handled by the listener itself when the object is deallocated
+        tasksListener?.remove()
     }
 }
