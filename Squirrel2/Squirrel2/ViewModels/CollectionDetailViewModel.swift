@@ -142,6 +142,17 @@ class CollectionDetailViewModel: ObservableObject {
                         return nil
                     }
                     
+                    // Convert metadata to handle any Firebase Timestamps
+                    var cleanMetadata: [String: Any]?
+                    if let metadata = data["metadata"] as? [String: Any] {
+                        cleanMetadata = metadata.compactMapValues { value in
+                            if let timestamp = value as? Timestamp {
+                                return timestamp.dateValue().ISO8601Format()
+                            }
+                            return value
+                        }
+                    }
+                    
                     // Create Entry - note: no collectionIds field anymore
                     let entryData: [String: Any] = [
                         "id": document.documentID,
@@ -158,7 +169,7 @@ class CollectionDetailViewModel: ObservableObject {
                         "weather": data["weather"],
                         "createdAt": (data["createdAt"] as? Timestamp)?.dateValue().ISO8601Format() ?? Date().ISO8601Format(),
                         "updatedAt": (data["updatedAt"] as? Timestamp)?.dateValue().ISO8601Format() ?? Date().ISO8601Format(),
-                        "metadata": data["metadata"]
+                        "metadata": cleanMetadata
                     ].compactMapValues { $0 }
                     
                     do {
