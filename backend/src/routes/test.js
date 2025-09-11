@@ -2,6 +2,16 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
 
+// Simple ping endpoint (no auth required)
+router.get('/ping', (req, res) => {
+  res.json({ 
+    pong: true, 
+    timestamp: new Date().toISOString(),
+    message: 'Test endpoint working',
+    version: '2.0.1' 
+  });
+});
+
 // Test QStash connectivity and configuration
 router.get('/qstash-config', verifyToken, async (req, res) => {
   try {
