@@ -562,6 +562,14 @@ struct ChatView: View {
                 let boundary = UUID().uuidString
                 var body = Data()
                 
+                // Add conversation ID if we have one
+                if let conversationId = conversation?.id {
+                    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                    body.append("Content-Disposition: form-data; name=\"conversationId\"\r\n\r\n".data(using: .utf8)!)
+                    body.append("\(conversationId)".data(using: .utf8)!)
+                    body.append("\r\n".data(using: .utf8)!)
+                }
+                
                 // Add image data
                 body.append("--\(boundary)\r\n".data(using: .utf8)!)
                 body.append("Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n".data(using: .utf8)!)

@@ -25,6 +25,7 @@ router.post('/process', upload.single('photo'), async (req, res) => {
   try {
     console.log('[Photos] Processing photo upload for user:', req.user?.uid);
     const userId = req.user.uid;
+    const { conversationId } = req.body; // Get existing conversation ID if provided
     
     if (!req.file) {
       console.error('[Photos] No file in request');
@@ -130,17 +131,32 @@ Respond in JSON format:
                          await Space.createDefaultSpace(userId);
     const spaceIds = defaultSpace ? [defaultSpace.id] : [];
     
-    // Create a conversation for this photo
-    const conversation = await Conversation.create({
-      userId: userId,
-      spaceIds: spaceIds,
-      title: analysis.suggestedTitle || 'Photo',
-      lastMessage: analysis.description,
-      metadata: {
-        collectionId: targetCollection.id,
-        type: 'photo'
+    let conversation;
+    
+    // Check if we should add to existing conversation or create new one
+    if (conversationId) {
+      // Add to existing conversation
+      conversation = await Conversation.findById(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(403).json({ error: 'Invalid conversation' });
       }
-    });
+      
+      // Update conversation's last message
+      conversation.lastMessage = analysis.description;
+      await conversation.save();
+    } else {
+      // Create a new conversation for this photo
+      conversation = await Conversation.create({
+        userId: userId,
+        spaceIds: spaceIds,
+        title: analysis.suggestedTitle || 'Photo',
+        lastMessage: analysis.description,
+        metadata: {
+          collectionId: targetCollection.id,
+          type: 'photo'
+        }
+      });
+    }
     
     // Create user message with the photo
     const userMessage = await Message.create({
@@ -168,23 +184,26 @@ Respond in JSON format:
       }
     });
     
-    // Create the entry linked to this conversation
-    const entry = await Entry.create({
-      userId: userId,
-      collectionId: targetCollection.id,
-      conversationId: conversation.id,
-      title: analysis.suggestedTitle || 'Photo',
-      content: analysis.description,
-      type: 'photo',
-      tags: ['photo'],
-      spaceIds: spaceIds,
-      imageUrl: publicUrl, // Store Firebase Storage URL at top level
-      metadata: { 
-        source: 'camera',
-        hasImage: true,
-        storagePath: fileName // Store the path for potential deletion later
-      }
-    });
+    // Only create entry if it's a new conversation
+    let entry = null;
+    if (!conversationId) {
+      entry = await Entry.create({
+        userId: userId,
+        collectionId: targetCollection.id,
+        conversationId: conversation.id,
+        title: analysis.suggestedTitle || 'Photo',
+        content: analysis.description,
+        type: 'photo',
+        tags: ['photo'],
+        spaceIds: spaceIds,
+        imageUrl: publicUrl, // Store Firebase Storage URL at top level
+        metadata: { 
+          source: 'camera',
+          hasImage: true,
+          storagePath: fileName // Store the path for potential deletion later
+        }
+      });
+    }
     
     // Update collection stats
     await targetCollection.updateStats();
@@ -192,11 +211,13 @@ Respond in JSON format:
     res.json({
       success: true,
       conversationId: conversation.id,
-      entryId: entry.id,
+      entryId: entry ? entry.id : null,
       collectionId: targetCollection.id,
       collectionName: targetCollection.name,
       description: analysis.description,
-      message: `Photo saved to "${targetCollection.name}"`
+      message: conversationId 
+        ? `Photo added to conversation` 
+        : `Photo saved to "${targetCollection.name}"`
     });
     
   } catch (error) {
