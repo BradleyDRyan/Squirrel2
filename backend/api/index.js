@@ -87,7 +87,8 @@ app.use('/api/workers', workerRoutes);
 app.use('/api/test', testRoutes);
 
 // Then mount other API routes
-app.use('/api', apiRoutes);
+// Remove the catch-all /api route - it was intercepting everything
+// app.use('/api', apiRoutes); // REMOVED - this was catching all /api/* requests
 app.use('/users', userRoutes);
 app.use('/api/spaces', spaceRoutes);
 app.use('/api/conversations', conversationRoutes);

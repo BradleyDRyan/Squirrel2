@@ -35,7 +35,7 @@ router.post('/process-inference', async (req, res) => {
     // Run inference
     const inference = await inferCollectionFromContent(content, collectionNames);
     
-    if (!inference || !inference.shouldCreateCollection) {
+    if (!inference || !inference.collectionName) {
       console.log(`[WORKER-INFERENCE] No collection pattern detected for entry ${entryId}`);
       return res.json({ 
         success: true,
@@ -44,7 +44,7 @@ router.post('/process-inference', async (req, res) => {
       });
     }
     
-    console.log(`[WORKER-INFERENCE] Inference suggests collection: ${inference.collectionName}`);
+    console.log(`[WORKER-INFERENCE] Inference suggests collection: ${inference.collectionName} (create new: ${inference.shouldCreateCollection})`);
     
     // Check if collection exists
     let collection = await Collection.findByName(userId, inference.collectionName);
