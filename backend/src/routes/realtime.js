@@ -73,13 +73,19 @@ router.post('/token', verifyToken, async (req, res) => {
         voice: 'shimmer',
         instructions: `You are a helpful assistant. Be concise and natural.
         
-The user has these collections: ${collectionNames}
+When the user shares something entry-worthy (like ratings, reviews, notes, observations, ideas), use save_entry to capture it.
 
-When the user shares something meaningful that fits their collections, use save_entry.
+Don't worry about which collection it belongs to - just save any meaningful content the user shares.
 
-When users want to create a collection, use create_collection.
+Examples of entry-worthy content:
+- "Boy Smells Ash candle is 8/10"
+- "Just watched Dune 2, amazing cinematography"
+- "Recipe: Mix flour, eggs, milk for pancakes"
+- "Idea: app that tracks mood with weather"
 
-For tasks and todos, use create_task.`,
+For tasks and todos, use create_task.
+
+Only use create_collection when explicitly asked.`,
         input_audio_transcription: {
           model: 'whisper-1'
         },
@@ -137,20 +143,16 @@ For tasks and todos, use create_task.`,
           {
             type: 'function',
             name: 'save_entry',
-            description: 'Save meaningful content to a collection',
+            description: 'Save any entry-worthy content the user shares',
             parameters: {
               type: 'object',
               properties: {
                 content: {
                   type: 'string',
-                  description: 'The content to save'
-                },
-                collectionName: {
-                  type: 'string',
-                  description: 'The collection to save to'
+                  description: 'The exact content to save as the user said it'
                 }
               },
-              required: ['content', 'collectionName']
+              required: ['content']
             }
           },
           {
@@ -330,7 +332,7 @@ router.post('/function', verifyToken, async (req, res) => {
         break;
         
       case 'save_entry':
-        // Enhanced save with AI inference for the "hard path"
+        // Save entry and then determine collection via AI sorter
         if (!args.content) {
           result = {
             success: false,
@@ -339,28 +341,68 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
+        console.log(`[SAVE_ENTRY] Processing: "${args.content}"`);
+        
+        // Step 1: Create the raw entry first (no collection assignment yet)
+        const saveEntrySpace = await Space.findDefaultSpace(userId) || 
+                               await Space.createDefaultSpace(userId);
+        const saveEntrySpaceIds = saveEntrySpace ? [saveEntrySpace.id] : [];
+        
+        const savedEntry = await Entry.create({
+          userId: userId,
+          title: '',
+          content: args.content,
+          type: 'journal',
+          tags: [],
+          spaceIds: saveEntrySpaceIds,
+          metadata: { 
+            source: 'voice',
+            pendingSorting: true
+          }
+        });
+        
+        console.log(`[SAVE_ENTRY] Created entry ${savedEntry.id}`);
+        
+        // Step 2: Use AI to determine collection (async post-processing)
         let targetCollection = null;
         let formattedData = { content: args.content };
         let wasInferred = false;
         
-        // Easy path: collection name provided explicitly
-        if (args.collectionName) {
-          targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
-        } else {
-          // Hard path: Try to infer collection from content
-          console.log(`[INFERENCE] Attempting to infer collection from: "${args.content}"`);
+        try {
+          // Check existing collections first
+          const existingCollections = await Collection.findByUserId(userId);
+          let matchedCollection = null;
           
-          try {
+          // First try simple pattern matching
+          for (const collection of existingCollections) {
+            if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
+              const contentLower = args.content.toLowerCase();
+              const matchedKeywords = collection.rules.keywords.filter(keyword => 
+                contentLower.includes(keyword.toLowerCase())
+              );
+              
+              if (matchedKeywords.length > 0) {
+                matchedCollection = collection;
+                console.log(`[SORTER] Matched existing collection: "${collection.name}" by keywords`);
+                break;
+              }
+            }
+          }
+          
+          // If no match, use AI inference
+          if (!matchedCollection) {
+            console.log(`[SORTER] No keyword match, using AI inference...`);
             const inference = await inferCollectionFromContent(args.content);
             
             if (inference && inference.shouldCreateCollection) {
-              console.log(`[INFERENCE] AI suggests creating collection: "${inference.collectionName}"`);
+              console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
               
-              // Check if collection already exists
+              // Check if suggested collection already exists
               targetCollection = await Collection.findByName(userId, inference.collectionName);
               
               if (!targetCollection) {
                 // Create new collection with AI-generated details
+                console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
                 const details = await generateCollectionDetails(
                   inference.collectionName,
                   inference.description,
@@ -376,77 +418,73 @@ router.post('/function', verifyToken, async (req, res) => {
                   rules: details.rules,
                   entryFormat: details.entryFormat,
                   metadata: { 
-                    source: 'voice_inference',
-                    firstEntry: args.content
+                    source: 'voice_ai_sorter',
+                    firstEntry: savedEntry.id
                   }
                 });
                 
-                console.log(`[INFERENCE] Created new collection: "${targetCollection.name}" with entry format`);
                 wasInferred = true;
+                console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
               }
               
               // Use extracted data if available
               if (inference.extractedData) {
                 formattedData = inference.extractedData;
-                console.log(`[INFERENCE] Using extracted data:`, formattedData);
+                console.log(`[SORTER] Using extracted data:`, formattedData);
               }
             }
-          } catch (inferenceError) {
-            console.error('[INFERENCE] Error:', inferenceError);
-            // Fall back to default collection
+          } else {
+            targetCollection = matchedCollection;
           }
+        } catch (sortingError) {
+          console.error('[SORTER] Error:', sortingError);
         }
         
-        // If still no collection, use or create a default one
-        if (!targetCollection) {
-          targetCollection = await Collection.findOrCreateByName(userId, 'General Notes', 'General notes and thoughts');
+        // Step 3: If we have a collection, create the CollectionEntry link
+        if (targetCollection) {
+          const collectionEntry = await CollectionEntry.create({
+            entryId: savedEntry.id,
+            collectionId: targetCollection.id,
+            userId: userId,
+            formattedData: formattedData,
+            metadata: {
+              source: 'voice',
+              wasInferred: wasInferred,
+              sortedAt: new Date()
+            }
+          });
+          
+          // Update collection stats
+          await targetCollection.updateStats();
+          
+          // Update entry metadata to remove pending flag
+          savedEntry.metadata.pendingSorting = false;
+          savedEntry.metadata.sortedToCollection = targetCollection.name;
+          await savedEntry.save();
+          
+          console.log(`[SORTER] Entry ${savedEntry.id} sorted to collection "${targetCollection.name}"`);
+          
+          result = {
+            success: true,
+            entryId: savedEntry.id,
+            collectionEntryId: collectionEntry.id,
+            collectionId: targetCollection.id,
+            collectionName: targetCollection.name,
+            message: wasInferred 
+              ? `Saved and created "${targetCollection.name}" collection` 
+              : `Saved to "${targetCollection.name}"`,
+            wasInferred: wasInferred
+          };
+        } else {
+          // No collection matched or created - entry stays unsorted
+          console.log(`[SORTER] Entry ${savedEntry.id} remains unsorted`);
+          result = {
+            success: true,
+            entryId: savedEntry.id,
+            message: `Entry saved (unsorted)`,
+            unsorted: true
+          };
         }
-        
-        // Get or create default space
-        const saveEntrySpace = await Space.findDefaultSpace(userId) || 
-                               await Space.createDefaultSpace(userId);
-        const saveEntrySpaceIds = saveEntrySpace ? [saveEntrySpace.id] : [];
-        
-        // Create the raw entry (no collectionIds anymore)
-        const savedEntry = await Entry.create({
-          userId: userId,
-          title: '',
-          content: args.content,
-          type: 'journal',
-          tags: [],
-          spaceIds: saveEntrySpaceIds,
-          metadata: { 
-            source: 'voice',
-            wasInferred: wasInferred
-          }
-        });
-        
-        // Create CollectionEntry to link entry to collection
-        const collectionEntry = await CollectionEntry.create({
-          entryId: savedEntry.id,
-          collectionId: targetCollection.id,
-          userId: userId,
-          formattedData: formattedData,
-          metadata: {
-            source: 'voice',
-            wasInferred: wasInferred
-          }
-        });
-        
-        // Update collection stats
-        await targetCollection.updateStats();
-        
-        result = {
-          success: true,
-          entryId: savedEntry.id,
-          collectionEntryId: collectionEntry.id,
-          collectionId: targetCollection.id,
-          collectionName: targetCollection.name,
-          message: wasInferred 
-            ? `Created "${targetCollection.name}" collection and saved entry` 
-            : `Saved to "${targetCollection.name}"`,
-          wasInferred: wasInferred
-        };
         break;
         
       case 'create_entry':
