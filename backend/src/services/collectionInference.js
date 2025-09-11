@@ -13,9 +13,12 @@ const { chatCompletion } = require('./openai');
 async function inferCollectionFromContent(content) {
   try {
     if (!process.env.OPENAI_API_KEY) {
+      console.log('[INFERENCE] No OpenAI API key configured');
       // Return null if OpenAI is not configured
       return null;
     }
+    
+    console.log('[INFERENCE] Starting inference for content:', content);
 
     const prompt = `Analyze this user input and determine if it should belong to a collection:
 "${content}"
