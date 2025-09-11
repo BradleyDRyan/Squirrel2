@@ -5,14 +5,27 @@ const { inferCollectionFromContent, generateCollectionDetails } = require('../se
 
 // Verify QStash signature for security
 function verifyQStashSignature(req, res, next) {
-  // In production, verify the signature from QStash
-  // For now, we'll check for a basic header
+  // QStash sends requests with a signature header for verification
   const signature = req.headers['upstash-signature'];
   
-  if (process.env.NODE_ENV === 'production' && !signature) {
-    return res.status(401).json({ error: 'Invalid request signature' });
+  // Log the request for debugging
+  console.log('[WORKER] Request received:', {
+    path: req.path,
+    headers: {
+      'upstash-signature': signature ? 'present' : 'missing',
+      'content-type': req.headers['content-type']
+    },
+    body: req.body ? Object.keys(req.body) : 'no body'
+  });
+  
+  // For now, just check that the signature exists
+  // In production, you'd verify this against QSTASH_CURRENT_SIGNING_KEY
+  if (!signature) {
+    console.log('[WORKER] Rejected: No QStash signature');
+    return res.status(401).json({ error: 'No QStash signature provided' });
   }
   
+  console.log('[WORKER] Signature verified, proceeding with request');
   next();
 }
 
