@@ -382,7 +382,7 @@ router.post('/function', verifyToken, async (req, res) => {
       case 'create_entry':
         // Explicit save - user specifically asked to save something
         let entryContent = args.content;
-        let targetCollection = null;
+        let entryTargetCollection = null;
         
         if (!entryContent) {
           result = {
@@ -398,11 +398,11 @@ router.post('/function', verifyToken, async (req, res) => {
         
         if (matchResult && matchResult.confidence > 0.3) {
           // Found a matching collection
-          targetCollection = matchResult.collection;
+          entryTargetCollection = matchResult.collection;
           entryContent = matchResult.content; // Use cleaned content (e.g., without "collection_name:" prefix)
         } else if (args.collectionName) {
           // If no match but collection name explicitly provided, find or create it
-          targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
+          entryTargetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
         } else {
           // No collection specified and no match found - create a general collection or reject
           result = {
@@ -420,7 +420,7 @@ router.post('/function', verifyToken, async (req, res) => {
         // Create the entry
         const entryData = {
           userId: userId,
-          collectionId: targetCollection.id,
+          collectionId: entryTargetCollection.id,
           title: args.title || '',
           content: entryContent,
           type: 'journal',
@@ -428,7 +428,7 @@ router.post('/function', verifyToken, async (req, res) => {
           spaceIds: entrySpaceIds,
           metadata: { 
             source: 'voice',
-            collectionName: targetCollection.name,
+            collectionName: entryTargetCollection.name,
             matchConfidence: matchResult ? matchResult.confidence : 1.0
           }
         };
@@ -436,17 +436,17 @@ router.post('/function', verifyToken, async (req, res) => {
         const entry = await Entry.create(entryData);
         
         // Update collection stats
-        await targetCollection.updateStats();
+        await entryTargetCollection.updateStats();
         
         result = {
           success: true,
           entryId: entry.id,
-          collectionId: targetCollection.id,
-          collectionName: targetCollection.name,
-          message: `Entry saved to "${targetCollection.name}" collection`,
+          collectionId: entryTargetCollection.id,
+          collectionName: entryTargetCollection.name,
+          message: `Entry saved to "${entryTargetCollection.name}" collection`,
           wasMatched: !!matchResult
         };
-        console.log(`Created entry ${entry.id} in collection "${targetCollection.name}" for user ${userId}`);
+        console.log(`Created entry ${entry.id} in collection "${entryTargetCollection.name}" for user ${userId}`);
         break;
         
       default:
