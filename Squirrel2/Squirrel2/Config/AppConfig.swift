@@ -12,8 +12,8 @@ struct AppConfig {
     
     /// The base URL for the backend API
     static var baseURL: String {
-        // Using the custom domain for cleaner URLs
-        return "https://backend-sigma-drab.vercel.app"
+        // Using the squirrel2 Vercel project
+        return "https://squirrel2.vercel.app"
     }
     
     /// Full API base URL with /api path
