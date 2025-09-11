@@ -30,10 +30,9 @@ class CollectionDetailViewModel: ObservableObject {
         
         // Set up real-time listener for entries in this collection
         // Entries can belong to multiple collections (many-to-many)
+        // Note: Removed orderBy to avoid composite index requirement with arrayContains
         entriesListener = db.collection("entries")
             .whereField("collectionIds", arrayContains: collectionId)
-            .whereField("userId", isEqualTo: userId)
-            .order(by: "createdAt", descending: true)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
                 
@@ -100,7 +99,8 @@ class CollectionDetailViewModel: ObservableObject {
                 }
                 
                 Task { @MainActor in
-                    self.entries = newEntries
+                    // Sort entries by createdAt date descending (newest first)
+                    self.entries = newEntries.sorted { $0.createdAt > $1.createdAt }
                     self.isLoading = false
                     self.errorMessage = nil
                     print("[CollectionDetailViewModel] Updated entries list with \(self.entries.count) items")
