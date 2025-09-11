@@ -367,64 +367,60 @@ router.post('/function', verifyToken, async (req, res) => {
           const entry = await Entry.create(entryData);
           console.log(`[EXTRACT_ENTRIES] Step 1 Complete: Entry ${entry.id} saved to database`);
           
-          // Trigger async inference - fire and forget
-          const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+          // Step 2: Trigger inference as a completely separate API call
+          console.log(`[EXTRACT_ENTRIES] Step 2: Triggering independent inference via HTTP`);
           
-          console.log(`[EXTRACT_ENTRIES] Step 2: Starting background AI inference for collection sorting`);
+          // Use a simple HTTP call to trigger inference independently
+          // This ensures it runs completely separately from this function
+          const https = require('https');
+          const inferenceUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://squirrel2.vercel.app/api/entries/' 
+            : 'http://localhost:3001/api/entries/';
           
-          // Run inference in background without waiting
-          inferCollectionFromContent(args.content).then(async (inference) => {
-            console.log(`[EXTRACT_ENTRIES] Step 3: AI inference complete. Result:`, inference);
-            if (inference && inference.shouldCreateCollection) {
-              console.log(`[EXTRACT_ENTRIES] Step 4: Should create/link to collection: "${inference.collectionName}"`);
-              
-              try {
-                let collection = await Collection.findByName(userId, inference.collectionName);
-                
-                if (!collection) {
-                  console.log(`[EXTRACT_ENTRIES] Step 5a: Collection "${inference.collectionName}" doesn't exist, creating...`);
-                  
-                  const details = await generateCollectionDetails(
-                    inference.collectionName,
-                    inference.description,
-                    [args.content]
-                  );
-                  
-                  collection = await Collection.create({
-                    userId: userId,
-                    name: details.name,
-                    description: details.description,
-                    icon: details.icon,
-                    rules: details.rules,
-                    entryFormat: details.entryFormat,
-                    metadata: { source: 'ai_inference' }
-                  });
-                  
-                  console.log(`[EXTRACT_ENTRIES] Step 5b: Created new collection: ${collection.name} (ID: ${collection.id})`);
-                } else {
-                  console.log(`[EXTRACT_ENTRIES] Step 5a: Found existing collection: ${collection.name} (ID: ${collection.id})`);
-                }
-                
-                console.log(`[EXTRACT_ENTRIES] Step 6: Creating CollectionEntry link...`);
-                
-                const collectionEntry = await CollectionEntry.create({
-                  entryId: entry.id,
-                  collectionId: collection.id,
-                  userId: userId,
-                  formattedData: { content: args.content },
-                  metadata: { source: 'voice' }
-                });
-                
-                console.log(`[EXTRACT_ENTRIES] Step 7: SUCCESS! Entry ${entry.id} linked to collection "${collection.name}" via CollectionEntry ${collectionEntry.id}`);
-              } catch (err) {
-                console.error(`[EXTRACT_ENTRIES] Step ERROR: Background collection processing failed:`, err);
-              }
-            } else {
-              console.log(`[EXTRACT_ENTRIES] Step 4: AI determined no collection needed for this content`);
-            }
-          }).catch(err => {
-            console.error(`[EXTRACT_ENTRIES] Step 3 ERROR: AI inference failed:`, err);
+          // Create a service token for internal API calls
+          const serviceToken = await admin.auth().createCustomToken(userId, {
+            service: 'realtime-inference',
+            entryId: entry.id
           });
+          
+          // Make the HTTP request but don't wait for it
+          const url = new URL(`${inferenceUrl}${entry.id}/infer-collection`);
+          const postData = JSON.stringify({});
+          
+          const options = {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${serviceToken}`,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          };
+          
+          const inferenceReq = https.request(options, (inferenceRes) => {
+            let data = '';
+            inferenceRes.on('data', (chunk) => data += chunk);
+            inferenceRes.on('end', () => {
+              try {
+                const result = JSON.parse(data);
+                console.log(`[EXTRACT_ENTRIES] Step 3: Inference completed independently:`, result);
+              } catch (e) {
+                console.log(`[EXTRACT_ENTRIES] Step 3: Inference response:`, data);
+              }
+            });
+          });
+          
+          inferenceReq.on('error', (error) => {
+            console.error(`[EXTRACT_ENTRIES] Inference request error:`, error.message);
+          });
+          
+          // Send the request and don't wait for response
+          inferenceReq.write(postData);
+          inferenceReq.end();
+          
+          console.log(`[EXTRACT_ENTRIES] Step 2 Complete: Inference triggered, returning immediately`);
           
           result = {
             success: true,

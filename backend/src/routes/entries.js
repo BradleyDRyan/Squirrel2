@@ -210,4 +210,114 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Trigger inference for an existing entry
+router.post('/:id/infer-collection', async (req, res) => {
+  try {
+    console.log(`[INFER-COLLECTION] Starting inference for entry ${req.params.id}`);
+    
+    const entry = await Entry.findById(req.params.id);
+    if (!entry || entry.userId !== req.user.uid) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+    
+    // Get existing collections for this user
+    const existingCollections = await Collection.findByUserId(req.user.uid);
+    const collectionNames = existingCollections.map(c => c.name);
+    
+    console.log(`[INFER-COLLECTION] Found ${existingCollections.length} existing collections for user`);
+    
+    // Run inference
+    const inference = await inferCollectionFromContent(entry.content, collectionNames);
+    
+    if (!inference || !inference.shouldCreateCollection) {
+      console.log(`[INFER-COLLECTION] No collection inference for entry ${entry.id}`);
+      return res.json({ 
+        message: 'No collection pattern detected',
+        entryId: entry.id 
+      });
+    }
+    
+    console.log(`[INFER-COLLECTION] Inference suggests collection: ${inference.collectionName}`);
+    
+    // Check if collection exists
+    let collection = await Collection.findByName(req.user.uid, inference.collectionName);
+    let wasNewCollection = false;
+    
+    if (!collection) {
+      console.log(`[INFER-COLLECTION] Creating new collection: ${inference.collectionName}`);
+      
+      // Generate detailed collection structure
+      const details = await generateCollectionDetails(
+        inference.collectionName,
+        inference.description,
+        entry.content
+      );
+      
+      collection = await Collection.create({
+        userId: req.user.uid,
+        name: details.name,
+        description: details.description,
+        icon: details.icon || '📝',
+        color: details.color || '#6366f1',
+        rules: details.rules,
+        entryFormat: details.entryFormat,
+        metadata: { 
+          source: 'async_inference',
+          firstEntry: entry.id,
+          inferredAt: new Date()
+        }
+      });
+      
+      wasNewCollection = true;
+      console.log(`[INFER-COLLECTION] Created collection ${collection.id}`);
+    } else {
+      console.log(`[INFER-COLLECTION] Using existing collection ${collection.id}`);
+    }
+    
+    // Check if entry is already in this collection
+    const existingCollectionEntry = await CollectionEntry.findByEntryAndCollection(
+      entry.id, 
+      collection.id
+    );
+    
+    if (existingCollectionEntry) {
+      console.log(`[INFER-COLLECTION] Entry already in collection`);
+      return res.json({
+        message: 'Entry already in collection',
+        collection,
+        wasNewCollection: false
+      });
+    }
+    
+    // Create CollectionEntry with formatted data
+    const collectionEntry = await CollectionEntry.create({
+      userId: req.user.uid,
+      collectionId: collection.id,
+      entryId: entry.id,
+      formattedData: inference.extractedData || {},
+      metadata: {
+        source: 'async_inference',
+        inferredAt: new Date()
+      }
+    });
+    
+    console.log(`[INFER-COLLECTION] Created CollectionEntry ${collectionEntry.id}`);
+    
+    res.json({
+      collection,
+      collectionEntry,
+      wasNewCollection,
+      inference: {
+        collectionName: collection.name,
+        collectionId: collection.id,
+        extractedData: inference.extractedData
+      }
+    });
+    
+  } catch (error) {
+    console.error('[INFER-COLLECTION] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

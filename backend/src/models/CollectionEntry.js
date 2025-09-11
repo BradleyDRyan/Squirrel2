@@ -95,6 +95,11 @@ class CollectionEntry {
     });
   }
 
+  // Alias for findExisting for clarity
+  static async findByEntryAndCollection(entryId, collectionId) {
+    return this.findExisting(entryId, collectionId);
+  }
+
   async save() {
     if (!this.id) {
       throw new Error('Cannot save CollectionEntry without ID');
