@@ -22,6 +22,8 @@ const aiRoutes = require('../src/routes/ai');
 const realtimeRoutes = require('../src/routes/realtime');
 const configRoutes = require('../src/routes/config');
 const photoRoutes = require('../src/routes/photos');
+const workerRoutes = require('../src/routes/workers');
+const testRoutes = require('../src/routes/test');
 
 const app = express();
 
@@ -93,6 +95,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/realtime', realtimeRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/photos', photoRoutes);
+app.use('/api/workers', workerRoutes);
+app.use('/api/test', testRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
