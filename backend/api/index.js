@@ -25,12 +25,23 @@ const photoRoutes = require('../src/routes/photos');
 
 const app = express();
 
-// Trust proxy headers on Vercel
-app.set('trust proxy', true);
+// Trust proxy headers on Vercel (required for proper IP detection)
+app.set('trust proxy', 1);
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip rate limiting in development
+  skip: (req) => process.env.NODE_ENV === 'development',
+  // Use custom key generator for Vercel
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header from Vercel
+    return req.headers['x-forwarded-for']?.split(',')[0] || 
+           req.connection.remoteAddress || 
+           'unknown';
+  }
 });
 
 app.use(helmet());
