@@ -133,7 +133,6 @@ class Entry {
       await Entry.collection().doc(this.id).update({
         title: this.title,
         content: this.content,
-        collectionId: this.collectionId,
         spaceIds: this.spaceIds,
         type: this.type,
         mood: this.mood,
