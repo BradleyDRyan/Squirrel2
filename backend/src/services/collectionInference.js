@@ -28,11 +28,12 @@ async function inferCollectionFromContent(content, existingCollections = []) {
     const prompt = `Content: "${content}"
 ${existingCollectionsContext}
 
-Return minimal JSON:
+Return JSON:
 {
   "collectionName": "collection name",
   "shouldCreateCollection": true/false,
-  "extractedData": {"key": "value"}
+  "extractedData": {"key": "value"},
+  "entryFormat": [{"key": "field", "type": "text|number|date", "label": "Field Name"}] // only if creating new
 }`;
 
     const messages = [
@@ -48,7 +49,7 @@ Return minimal JSON:
 
     const response = await chatCompletion(messages, 'gpt-4o-mini', {
       temperature: 0.3,  // Lower temperature for faster, more deterministic responses
-      max_tokens: 150    // Much smaller - we only need minimal JSON
+      max_tokens: 250    // Need room for entryFormat when creating new collections
     });
     console.log('[INFERENCE] AI response received (truncated):', response.content.substring(0, 200));
     
@@ -90,39 +91,9 @@ async function generateCollectionDetails(collectionName, description = '', sampl
     }
 
     const prompt = `Collection: "${collectionName}"
-${sampleContent ? `Sample: "${sampleContent}"` : ''}
 
-Generate minimal JSON with icon, color, and 2-3 essential fields:
-{
-  "name": "${collectionName}",
-  "description": "Enhanced description",
-  "icon": "emoji that fits",
-  "color": "#hexcolor",
-  "rules": {
-    "keywords": ["keywords"],
-    "patterns": ["patterns like 'I rated'"],
-    "examples": [{"content": "example 1"}, {"content": "example 2"}],
-    "description": "When to add entries"
-  },
-  "entryFormat": {
-    "fields": [
-      {
-        "key": "fieldKey",
-        "label": "Field Label",
-        "type": "text|number|date|select|boolean",
-        "required": true/false,
-        "options": null,
-        "min": null,
-        "max": null,
-        "multiline": false,
-        "multiple": false
-      }
-    ],
-    "version": 1
-  }
-}
-
-Return ONLY valid JSON, no markdown or explanation.`;
+Return JSON with icon and color:
+{"name": "${collectionName}", "icon": "emoji", "color": "#hex"}`;
 
     const messages = [
       {
@@ -137,7 +108,7 @@ Return ONLY valid JSON, no markdown or explanation.`;
 
     const response = await chatCompletion(messages, 'gpt-4o-mini', {
       temperature: 0.3,  // Faster, more deterministic
-      max_tokens: 400    // Smaller response
+      max_tokens: 50     // Just need {"name": "...", "icon": "📚", "color": "#123456"}
     });
     const result = JSON.parse(response.content);
     

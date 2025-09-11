@@ -53,7 +53,7 @@ router.post('/process-inference', async (req, res) => {
     if (!collection) {
       console.log(`[WORKER-INFERENCE] Creating new collection: ${inference.collectionName}`);
       
-      // Generate detailed collection structure
+      // Generate icon and color
       const details = await generateCollectionDetails(
         inference.collectionName,
         inference.description,
@@ -63,11 +63,10 @@ router.post('/process-inference', async (req, res) => {
       collection = await Collection.create({
         userId: userId,
         name: details.name,
-        description: details.description,
+        description: inference.description || `Collection for ${details.name}`,
         icon: details.icon || '📝',
         color: details.color || '#6366f1',
-        rules: details.rules,
-        entryFormat: details.entryFormat,
+        entryFormat: inference.entryFormat ? { fields: inference.entryFormat, version: 1 } : null,
         metadata: { 
           source: 'background_inference',
           firstEntry: entryId,
