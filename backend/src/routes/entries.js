@@ -244,51 +244,79 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     const entry = await Entry.create(entryData);
     console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
     
-    // Trigger inference independently using internal service auth
+    // Trigger inference directly - simpler approach
     console.log(`[VOICE-ENTRY] Triggering collection inference for entry ${entry.id}`);
     
-    // Generate service secret if not set
-    if (!process.env.INTERNAL_SERVICE_SECRET) {
-      const crypto = require('crypto');
-      process.env.INTERNAL_SERVICE_SECRET = crypto.randomBytes(32).toString('hex');
-    }
-    
-    // Fire and forget the inference using service authentication
-    const https = require('https');
-    const inferenceUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://squirrel2.vercel.app/api/entries/' 
-      : 'http://localhost:3001/api/entries/';
-    
-    const url = new URL(`${inferenceUrl}${entry.id}/infer-collection`);
-    const postData = JSON.stringify({});
-    
-    const options = {
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.INTERNAL_SERVICE_SECRET}`,
-        'X-User-Id': req.user.uid,  // Pass user ID in header for service auth
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
+    // Run inference inline since we already have the user context
+    try {
+      const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+      const { Collection, CollectionEntry } = require('../models');
+      
+      // Get existing collections for this user
+      const existingCollections = await Collection.findByUserId(req.user.uid);
+      const collectionNames = existingCollections.map(c => c.name);
+      
+      console.log(`[VOICE-ENTRY] Found ${existingCollections.length} existing collections for user`);
+      
+      // Run inference
+      const inference = await inferCollectionFromContent(content, collectionNames);
+      
+      if (inference && inference.shouldCreateCollection) {
+        console.log(`[VOICE-ENTRY] Inference suggests collection: ${inference.collectionName}`);
+        
+        // Check if collection exists
+        let collection = await Collection.findByName(req.user.uid, inference.collectionName);
+        
+        if (!collection) {
+          console.log(`[VOICE-ENTRY] Creating new collection: ${inference.collectionName}`);
+          
+          // Generate detailed collection structure
+          const details = await generateCollectionDetails(
+            inference.collectionName,
+            inference.description,
+            content
+          );
+          
+          collection = await Collection.create({
+            userId: req.user.uid,
+            name: details.name,
+            description: details.description,
+            icon: details.icon || '📝',
+            color: details.color || '#6366f1',
+            rules: details.rules,
+            entryFormat: details.entryFormat,
+            metadata: { 
+              source: 'voice_inference',
+              firstEntry: entry.id,
+              inferredAt: new Date()
+            }
+          });
+          
+          console.log(`[VOICE-ENTRY] Created collection ${collection.id}`);
+        }
+        
+        // Create CollectionEntry with formatted data
+        if (collection && inference.extractedData) {
+          const collectionEntry = await CollectionEntry.create({
+            userId: req.user.uid,
+            collectionId: collection.id,
+            entryId: entry.id,
+            formattedData: inference.extractedData || {},
+            metadata: {
+              source: 'voice_inference',
+              inferredAt: new Date()
+            }
+          });
+          
+          console.log(`[VOICE-ENTRY] Created CollectionEntry ${collectionEntry.id}`);
+        }
+      } else {
+        console.log(`[VOICE-ENTRY] No collection pattern detected for entry ${entry.id}`);
       }
-    };
-    
-    const inferenceReq = https.request(options, (inferenceRes) => {
-      let data = '';
-      inferenceRes.on('data', (chunk) => data += chunk);
-      inferenceRes.on('end', () => {
-        console.log(`[VOICE-ENTRY] Inference completed for entry ${entry.id}`);
-      });
-    });
-    
-    inferenceReq.on('error', (error) => {
-      console.error(`[VOICE-ENTRY] Inference request error:`, error.message);
-    });
-    
-    inferenceReq.write(postData);
-    inferenceReq.end();
+    } catch (inferenceError) {
+      console.error(`[VOICE-ENTRY] Inference error:`, inferenceError.message);
+      // Continue - entry is already created
+    }
     
     res.status(201).json({
       success: true,
