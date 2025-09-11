@@ -96,7 +96,30 @@ struct PhotoThumbnailView: View {
                 Rectangle()
                     .fill(Color.gray.opacity(0.2))
                 
-                if let image = image {
+                // Try to load from URL first (new photos)
+                if let imageUrl = viewModel.getImageURL(for: entry),
+                   let url = URL(string: imageUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: geometry.size.width, height: geometry.size.width)
+                        case .success(let loadedImage):
+                            loadedImage
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geometry.size.width, height: geometry.size.width)
+                                .clipped()
+                        case .failure(_):
+                            Image(systemName: "photo")
+                                .foregroundColor(.gray)
+                                .frame(width: geometry.size.width, height: geometry.size.width)
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                } else if let image = image {
+                    // Fallback to base64 image (old photos)
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -132,7 +155,9 @@ struct PhotoThumbnailView: View {
     }
     
     private func loadImage() {
-        if let imageData = viewModel.getImageData(for: entry) {
+        // Only load base64 data if no URL is available
+        if viewModel.getImageURL(for: entry) == nil,
+           let imageData = viewModel.getImageData(for: entry) {
             self.image = UIImage(data: imageData)
         }
     }
@@ -151,7 +176,35 @@ struct PhotoDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // Photo
-                    if let image = image {
+                    if let imageUrl = viewModel.getImageURL(for: entry),
+                       let url = URL(string: imageUrl) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .empty:
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.2))
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .overlay(ProgressView())
+                                    .cornerRadius(12)
+                            case .success(let loadedImage):
+                                loadedImage
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .cornerRadius(12)
+                            case .failure(_):
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.2))
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .overlay(
+                                        Image(systemName: "photo")
+                                            .foregroundColor(.gray)
+                                    )
+                                    .cornerRadius(12)
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                    } else if let image = image {
                         Image(uiImage: image)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -246,7 +299,9 @@ struct PhotoDetailView: View {
     }
     
     private func loadImage() {
-        if let imageData = viewModel.getImageData(for: entry) {
+        // Only load base64 data if no URL is available
+        if viewModel.getImageURL(for: entry) == nil,
+           let imageData = viewModel.getImageData(for: entry) {
             self.image = UIImage(data: imageData)
         }
     }

@@ -4,6 +4,7 @@ const { verifyToken } = require('../middleware/auth');
 const { Collection, Entry, Space } = require('../models');
 const multer = require('multer');
 const OpenAI = require('openai');
+const { getStorage } = require('firebase-admin/storage');
 
 // Configure multer for memory storage
 const upload = multer({
@@ -32,7 +33,34 @@ router.post('/process', upload.single('photo'), async (req, res) => {
     
     console.log('[Photos] File received:', req.file.mimetype, 'Size:', req.file.size);
     
-    // Convert image to base64
+    // Upload to Firebase Storage
+    const storage = getStorage();
+    const bucket = storage.bucket();
+    const timestamp = Date.now();
+    const fileName = `photos/${userId}/${timestamp}-${req.file.originalname || 'photo.jpg'}`;
+    const file = bucket.file(fileName);
+    
+    console.log('[Photos] Uploading to Firebase Storage:', fileName);
+    
+    // Upload the file
+    await file.save(req.file.buffer, {
+      metadata: {
+        contentType: req.file.mimetype,
+        metadata: {
+          userId: userId,
+          uploadedAt: new Date().toISOString()
+        }
+      }
+    });
+    
+    // Make the file publicly accessible
+    await file.makePublic();
+    
+    // Get the public URL
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+    console.log('[Photos] Photo uploaded to:', publicUrl);
+    
+    // Convert image to base64 for OpenAI Vision API
     const base64Image = req.file.buffer.toString('base64');
     const imageUrl = `data:${req.file.mimetype};base64,${base64Image}`;
     
@@ -114,7 +142,8 @@ Respond in JSON format:
       metadata: { 
         source: 'camera',
         hasImage: true,
-        imageData: imageUrl // Store the image data (in production, use proper storage like S3)
+        imageUrl: publicUrl, // Store Firebase Storage URL
+        storagePath: fileName // Store the path for potential deletion later
       }
     });
     

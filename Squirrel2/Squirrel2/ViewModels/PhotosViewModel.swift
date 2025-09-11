@@ -84,19 +84,25 @@ class PhotosViewModel: ObservableObject {
         listener = nil
     }
     
+    func getImageURL(for entry: Entry) -> String? {
+        // Get Firebase Storage URL from metadata
+        return entry.metadata?["imageUrl"]
+    }
+    
     func getImageData(for entry: Entry) -> Data? {
-        // Extract base64 image data from metadata
-        guard let imageDataString = entry.metadata?["imageData"],
-              imageDataString.contains("base64,") else {
-            return nil
+        // For backward compatibility with base64 stored images
+        if let imageDataString = entry.metadata?["imageData"],
+           imageDataString.contains("base64,") {
+            // Remove the data URL prefix to get just the base64 string
+            let base64String = imageDataString
+                .replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+                .replacingOccurrences(of: "data:image/png;base64,", with: "")
+            
+            return Data(base64Encoded: base64String)
         }
         
-        // Remove the data URL prefix to get just the base64 string
-        let base64String = imageDataString
-            .replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
-            .replacingOccurrences(of: "data:image/png;base64,", with: "")
-        
-        return Data(base64Encoded: base64String)
+        // For new images, they'll be loaded via URL
+        return nil
     }
     
     deinit {
