@@ -342,7 +342,6 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        console.log(`[EXTRACT_ENTRIES] Processing: "${args.content}"`);
         
         // Get or create default space
         const extractSpace = await Space.findDefaultSpace(userId) || 
