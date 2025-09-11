@@ -4,104 +4,13 @@ const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const axios = require('axios');
-const { UserTask, Space, Entry, Collection, CollectionEntry } = require('../models');
-const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+const { UserTask, Space, Entry, Collection } = require('../models');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
 
 // Export for use in websocket-server.js
 module.exports.activeSessions = activeSessions;
-
-// Helper function to sort entry to collection asynchronously
-async function sortEntryToCollection(entry, userId) {
-  try {
-    console.log(`[SORTER] Starting AI-powered collection sorting for entry ${entry.id}`);
-    
-    const existingCollections = await Collection.findByUserId(userId);
-    let targetCollection = null;
-    let formattedData = { content: entry.content };
-    let wasInferred = false;
-    
-    // Always use AI inference for intelligent sorting
-    console.log(`[SORTER] Using AI to analyze content and determine collection...`);
-    console.log(`[SORTER] Existing collections: ${existingCollections.map(c => c.name).join(', ') || 'none'}`);
-    
-    // Pass existing collections to AI for better matching
-    const collectionNames = existingCollections.map(c => c.name);
-    const inference = await inferCollectionFromContent(entry.content, collectionNames);
-    
-    if (inference && inference.shouldCreateCollection) {
-      console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
-      
-      // Check if suggested collection already exists
-      targetCollection = await Collection.findByName(userId, inference.collectionName);
-      
-      if (!targetCollection) {
-        // Create new collection with AI-generated details
-        console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
-        const details = await generateCollectionDetails(
-          inference.collectionName,
-          inference.description,
-          entry.content
-        );
-        
-        targetCollection = await Collection.create({
-          userId: userId,
-          name: details.name,
-          description: details.description,
-          icon: details.icon || '📝',
-          color: details.color || '#6366f1',
-          rules: details.rules,
-          entryFormat: details.entryFormat,
-          metadata: { 
-            source: 'voice_ai_sorter',
-            firstEntry: entry.id
-          }
-        });
-        
-        wasInferred = true;
-        console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
-      }
-      
-      // Use extracted data if available
-      if (inference.extractedData) {
-        formattedData = inference.extractedData;
-        console.log(`[SORTER] Using extracted data:`, formattedData);
-      }
-    } else {
-      console.log(`[SORTER] AI determined this content doesn't need a collection`);
-    }
-    
-    // If we have a collection, create the CollectionEntry link
-    if (targetCollection) {
-      const collectionEntry = await CollectionEntry.create({
-        entryId: entry.id,
-        collectionId: targetCollection.id,
-        userId: userId,
-        formattedData: formattedData,
-        metadata: {
-          source: 'voice',
-          wasInferred: wasInferred,
-          sortedAt: new Date()
-        }
-      });
-      
-      // Update collection stats
-      await targetCollection.updateStats();
-      
-      // Update entry metadata
-      entry.metadata.sortedToCollection = targetCollection.name;
-      await entry.save();
-      
-      console.log(`[SORTER] Entry ${entry.id} sorted to collection "${targetCollection.name}"`);
-    } else {
-      console.log(`[SORTER] Entry ${entry.id} remains unsorted`);
-    }
-  } catch (error) {
-    console.error('[SORTER] Error:', error);
-  }
-}
 
 // Generate a session token for the client
 router.post('/session', verifyToken, async (req, res) => {
@@ -440,32 +349,48 @@ router.post('/function', verifyToken, async (req, res) => {
                            await Space.createDefaultSpace(userId);
         const extractSpaceIds = extractSpace ? [extractSpace.id] : [];
         
-        // Create the raw entry
-        const extractedEntry = await Entry.create({
-          userId: userId,
-          title: '',
-          content: args.content,
-          type: 'journal',
-          tags: [],
-          spaceIds: extractSpaceIds,
-          metadata: { 
-            source: 'voice',
-            extractedAt: new Date()
+        // Call the entries API endpoint which handles collection inference
+        // This delegates all the logic to the proper backend endpoint
+        try {
+          const entryUrl = `${process.env.API_BASE_URL || 'https://backend-sigma-drab.vercel.app/api'}/entries`;
+          const entryResponse = await fetch(entryUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.firebaseToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              content: args.content,
+              type: 'journal',
+              spaceIds: extractSpaceIds,
+              enableInference: true,  // Enable AI collection inference
+              metadata: { 
+                source: 'voice',
+                extractedAt: new Date()
+              }
+            })
+          });
+          
+          if (entryResponse.ok) {
+            const data = await entryResponse.json();
+            console.log(`[EXTRACT_ENTRIES] Created entry ${data.entry.id} via API`);
+            
+            result = {
+              success: true,
+              entryId: data.entry.id,
+              message: 'Entry extracted successfully'
+            };
+          } else {
+            const errorText = await entryResponse.text();
+            throw new Error(`API returned ${entryResponse.status}: ${errorText}`);
           }
-        });
-        
-        console.log(`[EXTRACT_ENTRIES] Created entry ${extractedEntry.id}`);
-        
-        // Run async collection sorting in the background (fire and forget)
-        sortEntryToCollection(extractedEntry, userId).catch(err => {
-          console.error('[EXTRACT_ENTRIES] Background sorting error:', err);
-        });
-        
-        result = {
-          success: true,
-          entryId: extractedEntry.id,
-          message: 'Entry extracted successfully'
-        };
+        } catch (err) {
+          console.error('[EXTRACT_ENTRIES] Failed to create entry:', err);
+          result = {
+            success: false,
+            message: 'Failed to extract entry'
+          };
+        }
         break;
         
       case 'create_entry':
