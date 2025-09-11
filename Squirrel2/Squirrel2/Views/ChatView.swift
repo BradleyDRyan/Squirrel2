@@ -594,8 +594,15 @@ struct ChatView: View {
                                 isCameraActive = false
                                 capturedImage = nil
                                 isProcessingPhoto = false
+                                showingCameraMode = false  // Dismiss the entire camera view
                                 
-                                // Could show a success toast here
+                                // Navigate to the conversation if we got one
+                                if let conversationId = responseDict["conversationId"] as? String {
+                                    // TODO: Navigate to conversation view with conversationId
+                                    print("✅ Photo conversation created: \(conversationId)")
+                                }
+                                
+                                // Show success feedback
                                 if let collectionName = responseDict["collectionName"] as? String {
                                     print("✅ Photo saved to \(collectionName)")
                                 }

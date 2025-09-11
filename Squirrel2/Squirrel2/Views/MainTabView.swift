@@ -41,7 +41,7 @@ struct MainTabView: View {
                     Spacer()
                     
                     Button(action: {
-                        showingCameraMode = true
+                        showingChat = true
                     }) {
                         ZStack {
                             Circle()
@@ -62,12 +62,6 @@ struct MainTabView: View {
         .sheet(isPresented: $showingChat) {
             ChatView(showingCameraMode: $showingCameraMode)
                 .environmentObject(firebaseManager)
-        }
-        .onChange(of: showingCameraMode) { _, shouldShow in
-            if shouldShow {
-                // Open chat view with camera mode enabled
-                showingChat = true
-            }
         }
     }
 }

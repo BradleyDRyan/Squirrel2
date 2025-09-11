@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
-const { Collection, Entry, Space } = require('../models');
+const { Collection, Entry, Space, Conversation, Message } = require('../models');
 const multer = require('multer');
 const OpenAI = require('openai');
 const { getStorage } = require('firebase-admin/storage');
@@ -130,10 +130,49 @@ Respond in JSON format:
                          await Space.createDefaultSpace(userId);
     const spaceIds = defaultSpace ? [defaultSpace.id] : [];
     
-    // Create the entry with the photo description
+    // Create a conversation for this photo
+    const conversation = await Conversation.create({
+      userId: userId,
+      spaceIds: spaceIds,
+      title: analysis.suggestedTitle || 'Photo',
+      lastMessage: analysis.description,
+      metadata: {
+        collectionId: targetCollection.id,
+        type: 'photo'
+      }
+    });
+    
+    // Create user message with the photo
+    const userMessage = await Message.create({
+      conversationId: conversation.id,
+      userId: userId,
+      content: 'Photo captured',
+      type: 'photo',
+      attachments: [publicUrl],
+      metadata: {
+        imageUrl: publicUrl,
+        storagePath: fileName
+      }
+    });
+    
+    // Create AI assistant message with the analysis
+    const assistantMessage = await Message.create({
+      conversationId: conversation.id,
+      userId: 'assistant',
+      content: analysis.description,
+      type: 'text',
+      metadata: {
+        role: 'assistant',
+        collectionName: targetCollection.name,
+        suggestedTitle: analysis.suggestedTitle
+      }
+    });
+    
+    // Create the entry linked to this conversation
     const entry = await Entry.create({
       userId: userId,
       collectionId: targetCollection.id,
+      conversationId: conversation.id,
       title: analysis.suggestedTitle || 'Photo',
       content: analysis.description,
       type: 'photo',
@@ -152,6 +191,7 @@ Respond in JSON format:
     
     res.json({
       success: true,
+      conversationId: conversation.id,
       entryId: entry.id,
       collectionId: targetCollection.id,
       collectionName: targetCollection.name,
