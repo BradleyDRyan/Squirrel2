@@ -11,12 +11,6 @@ const activeSessions = new Map();
 // Export for use in websocket-server.js
 module.exports.activeSessions = activeSessions;
 
-// Generate internal service secret if not set
-if (!process.env.INTERNAL_SERVICE_SECRET) {
-  process.env.INTERNAL_SERVICE_SECRET = crypto.randomBytes(32).toString('hex');
-  console.log('[REALTIME] Generated internal service secret');
-}
-
 // Generate a session token for the client
 router.post('/session', verifyToken, async (req, res) => {
   try {
@@ -187,7 +181,7 @@ Only use create_collection when explicitly asked.`,
   }
 });
 
-// Execute function calls from the client - properly route to dedicated endpoints
+// Execute function calls from the client - direct execution
 router.post('/function', verifyToken, async (req, res) => {
   try {
     const { name, arguments: args } = req.body;
@@ -195,84 +189,191 @@ router.post('/function', verifyToken, async (req, res) => {
     
     console.log(`[REALTIME-FUNCTION] Executing ${name} for user ${userId}`);
     
-    // Map function names to API endpoints
-    const functionEndpoints = {
-      'create_task': '/api/tasks/create-voice-task',
-      'create_collection': '/api/collections/create-voice-collection',
-      'extract_entries': '/api/entries/extract-voice-entry'
-    };
+    // Import required models and services
+    const { UserTask, Space, Entry, Collection } = require('../models');
     
-    const endpoint = functionEndpoints[name];
+    let result = {};
     
-    if (!endpoint) {
-      console.log(`[REALTIME-FUNCTION] Unknown function: ${name}`);
-      return res.status(400).json({ 
-        error: `Unknown function: ${name}` 
-      });
-    }
-    
-    // Build the API URL
-    const apiUrl = process.env.NODE_ENV === 'production' 
-      ? `https://squirrel2.vercel.app${endpoint}`
-      : `http://localhost:3001${endpoint}`;
-    
-    console.log(`[REALTIME-FUNCTION] Forwarding to ${apiUrl}`);
-    
-    // Prepare request body based on function type
-    let body = {};
     switch (name) {
       case 'create_task':
-        body = {
-          title: args.title,
-          description: args.description,
-          priority: args.priority,
-          dueDate: args.dueDate
+        console.log(`[VOICE-TASK] Creating task from voice: "${args.title}"`);
+        
+        // Get or create default space
+        const defaultSpace = await Space.findDefaultSpace(userId) || 
+                             await Space.createDefaultSpace(userId);
+        const spaceIds = defaultSpace ? [defaultSpace.id] : [];
+        
+        const taskData = {
+          userId: userId,
+          title: args.title || 'Untitled Task',
+          description: args.description || '',
+          priority: args.priority || 'medium',
+          status: 'pending',
+          source: 'voice',
+          spaceIds: spaceIds,
+          metadata: { 
+            source: 'voice',
+            createdAt: new Date()
+          }
+        };
+        
+        if (args.dueDate) {
+          taskData.dueDate = new Date(args.dueDate);
+        }
+        
+        const task = await UserTask.create(taskData);
+        
+        result = {
+          success: true,
+          task: task,
+          message: `Task "${task.title}" created successfully`
         };
         break;
+        
       case 'create_collection':
-        body = {
-          name: args.name,
-          description: args.description
+        console.log(`[VOICE-COLLECTION] Creating collection from voice: "${args.name}"`);
+        
+        // Check if collection already exists
+        const existing = await Collection.findByName(userId, args.name);
+        if (existing) {
+          result = {
+            success: false,
+            message: `Collection "${args.name}" already exists`,
+            collection: existing
+          };
+          break;
+        }
+        
+        // Generate collection details with AI if available
+        const { generateCollectionDetails } = require('../services/collectionInference');
+        let details;
+        try {
+          details = await generateCollectionDetails(args.name, args.description);
+        } catch (error) {
+          console.log(`[VOICE-COLLECTION] AI generation failed, using defaults`);
+          details = {
+            name: args.name,
+            description: args.description || `Collection for ${args.name}`,
+            icon: '📝',
+            color: '#6366f1',
+            rules: {
+              keywords: [args.name.toLowerCase()],
+              patterns: [],
+              description: `Entries related to ${args.name}`
+            },
+            entryFormat: null
+          };
+        }
+        
+        const collection = await Collection.create({
+          userId: userId,
+          name: details.name,
+          description: details.description,
+          icon: details.icon,
+          color: details.color,
+          rules: details.rules,
+          entryFormat: details.entryFormat,
+          metadata: { 
+            source: 'voice',
+            createdAt: new Date()
+          }
+        });
+        
+        result = {
+          success: true,
+          collection: collection,
+          message: `Collection "${collection.name}" created successfully`
         };
         break;
+        
       case 'extract_entries':
-        body = {
-          content: args.content
+        console.log(`[VOICE-ENTRY] Creating entry from voice: "${args.content.substring(0, 50)}..."`);
+        
+        // Get or create default space
+        const entrySpace = await Space.findDefaultSpace(userId) || 
+                           await Space.createDefaultSpace(userId);
+        const entrySpaceIds = entrySpace ? [entrySpace.id] : [];
+        
+        // Create the entry
+        const entryData = {
+          userId: userId,
+          title: '',
+          content: args.content,
+          type: 'journal',
+          spaceIds: entrySpaceIds,
+          metadata: { 
+            source: 'voice',
+            extractedAt: new Date()
+          }
+        };
+        
+        const entry = await Entry.create(entryData);
+        console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
+        
+        // Trigger inference independently
+        console.log(`[VOICE-ENTRY] Triggering collection inference for entry ${entry.id}`);
+        
+        const serviceToken = await admin.auth().createCustomToken(userId, {
+          service: 'voice-inference',
+          entryId: entry.id
+        });
+        
+        // Fire and forget the inference
+        const https = require('https');
+        const inferenceUrl = process.env.NODE_ENV === 'production' 
+          ? 'https://squirrel2.vercel.app/api/entries/' 
+          : 'http://localhost:3001/api/entries/';
+        
+        const url = new URL(`${inferenceUrl}${entry.id}/infer-collection`);
+        const postData = JSON.stringify({});
+        
+        const options = {
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${serviceToken}`,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+          }
+        };
+        
+        const inferenceReq = https.request(options, (inferenceRes) => {
+          let data = '';
+          inferenceRes.on('data', (chunk) => data += chunk);
+          inferenceRes.on('end', () => {
+            console.log(`[VOICE-ENTRY] Inference completed for entry ${entry.id}`);
+          });
+        });
+        
+        inferenceReq.on('error', (error) => {
+          console.error(`[VOICE-ENTRY] Inference request error:`, error.message);
+        });
+        
+        inferenceReq.write(postData);
+        inferenceReq.end();
+        
+        result = {
+          success: true,
+          entryId: entry.id,
+          message: `Entry saved successfully`
+        };
+        break;
+        
+      default:
+        console.log(`[REALTIME-FUNCTION] Unknown function: ${name}`);
+        result = {
+          success: false,
+          error: `Unknown function: ${name}`
         };
         break;
     }
     
-    // Make the API call using internal service authentication
-    try {
-      const response = await axios.post(apiUrl, body, {
-        headers: {
-          'Authorization': `Bearer ${process.env.INTERNAL_SERVICE_SECRET}`,
-          'X-User-Id': userId,  // Pass user ID in header for service auth
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log(`[REALTIME-FUNCTION] ${name} completed successfully`);
-      res.json(response.data);
-    } catch (apiError) {
-      console.error(`[REALTIME-FUNCTION] API call failed:`, apiError.message);
-      if (apiError.response) {
-        console.error(`[REALTIME-FUNCTION] Response status:`, apiError.response.status);
-        console.error(`[REALTIME-FUNCTION] Response data:`, apiError.response.data);
-      }
-      
-      // Return appropriate error to client
-      res.status(apiError.response?.status || 500).json({
-        success: false,
-        error: apiError.response?.data?.error || apiError.message
-      });
-    }
+    res.json(result);
   } catch (error) {
     console.error('[REALTIME-FUNCTION] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 

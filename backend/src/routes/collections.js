@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Collection, Entry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
+const { flexibleAuth } = require('../middleware/serviceAuth');
 const { formatDatesInObject } = require('../utils/dateUtils');
 const { generateCollectionRules } = require('../services/collectionRules');
 const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
@@ -238,8 +239,8 @@ router.post('/test-inference', async (req, res) => {
   }
 });
 
-// Create collection from voice input
-router.post('/create-voice-collection', async (req, res) => {
+// Create collection from voice input - accepts both user and service tokens
+router.post('/create-voice-collection', flexibleAuth, async (req, res) => {
   try {
     const { name, description } = req.body;
     

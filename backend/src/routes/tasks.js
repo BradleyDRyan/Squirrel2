@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { UserTask } = require('../models');
 const { verifyToken } = require('../middleware/auth');
+const { flexibleAuth } = require('../middleware/serviceAuth');
 
 router.use(verifyToken);
 
@@ -115,8 +116,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Create task from voice input
-router.post('/create-voice-task', async (req, res) => {
+// Create task from voice input - accepts both user and service tokens
+router.post('/create-voice-task', flexibleAuth, async (req, res) => {
   try {
     const { title, description, priority, dueDate } = req.body;
     

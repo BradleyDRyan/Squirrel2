@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Entry, Collection, CollectionEntry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
+const { flexibleAuth } = require('../middleware/serviceAuth');
 const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
 
 router.use(verifyToken);
@@ -210,8 +211,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Create entry from voice input (extract_entries)
-router.post('/extract-voice-entry', async (req, res) => {
+// Create entry from voice input (extract_entries) - accepts both user and service tokens
+router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
   try {
     const { content } = req.body;
     
@@ -299,8 +300,8 @@ router.post('/extract-voice-entry', async (req, res) => {
   }
 });
 
-// Trigger inference for an existing entry
-router.post('/:id/infer-collection', async (req, res) => {
+// Trigger inference for an existing entry - accepts both user and service tokens
+router.post('/:id/infer-collection', flexibleAuth, async (req, res) => {
   try {
     console.log(`[INFER-COLLECTION] Starting inference for entry ${req.params.id}`);
     
