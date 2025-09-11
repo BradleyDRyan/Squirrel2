@@ -10,7 +10,7 @@ const { chatCompletion } = require('./openai');
  * -> Collection: "Candle Ratings"
  * -> Format: { name: text, brand: text, rating: number }
  */
-async function inferCollectionFromContent(content, existingCollections = []) {
+async function inferCollectionFromContent(content, existingCollections = [], collectionInstructions = {}) {
   try {
     if (!process.env.OPENAI_API_KEY) {
       console.log('[INFERENCE] No OpenAI API key configured');
@@ -21,9 +21,21 @@ async function inferCollectionFromContent(content, existingCollections = []) {
     console.log('[INFERENCE] Starting inference for content:', content.substring(0, 100));
     console.log('[INFERENCE] Existing collections:', existingCollections);
 
-    const existingCollectionsContext = existingCollections.length > 0 
-      ? `Existing collections: ${existingCollections.join(', ')}. Use exact name if matches.`
-      : 'No existing collections.';
+    // Build context with collection names and their instructions
+    let existingCollectionsContext = '';
+    if (existingCollections.length > 0) {
+      const collectionsWithInstructions = existingCollections.map(name => {
+        const instructions = collectionInstructions[name];
+        if (instructions) {
+          return `- ${name}: ${instructions}`;
+        }
+        return `- ${name}`;
+      }).join('\n');
+      
+      existingCollectionsContext = `Existing collections with instructions:\n${collectionsWithInstructions}\n\nUse exact name if content matches the instructions.`;
+    } else {
+      existingCollectionsContext = 'No existing collections.';
+    }
 
     const prompt = `Content: "${content}"
 ${existingCollectionsContext}
@@ -92,8 +104,8 @@ async function generateCollectionDetails(collectionName, description = '', sampl
 
     const prompt = `Collection: "${collectionName}"
 
-Return JSON with icon and color:
-{"name": "${collectionName}", "icon": "emoji", "color": "#hex"}`;
+Return JSON with icon, color, and instructions:
+{"name": "${collectionName}", "icon": "emoji", "color": "#hex", "instructions": "brief guidance on what belongs in this collection"}`;
 
     const messages = [
       {
@@ -108,7 +120,7 @@ Return JSON with icon and color:
 
     const response = await chatCompletion(messages, 'gpt-4o-mini', {
       temperature: 0.3,  // Faster, more deterministic
-      max_tokens: 50     // Just need {"name": "...", "icon": "📚", "color": "#123456"}
+      max_tokens: 100     // Need room for instructions field
     });
     const result = JSON.parse(response.content);
     

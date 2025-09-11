@@ -6,16 +6,10 @@ class Collection {
     this.userId = data.userId || null;
     this.name = data.name || '';
     this.description = data.description || '';
+    this.instructions = data.instructions || '';  // AI guidance for what belongs in this collection
     this.icon = data.icon || '📝';
     this.color = data.color || '#6366f1';
-    this.rules = data.rules || {
-      // AI-generated rules for what should be saved to this collection
-      keywords: [],
-      patterns: [],
-      examples: [],
-      description: ''
-    };
-    this.entryFormat = data.entryFormat || null;  // New: Defines field structure for entries
+    this.entryFormat = data.entryFormat || null;  // Defines field structure for entries
     this.template = data.template || {
       // Legacy template structure - will phase out
       fields: [],
@@ -45,9 +39,9 @@ class Collection {
       userId: collection.userId,
       name: collection.name,
       description: collection.description,
+      instructions: collection.instructions,
       icon: collection.icon,
       color: collection.color,
-      rules: collection.rules,
       entryFormat: collection.entryFormat,
       template: collection.template,
       settings: collection.settings,
@@ -210,9 +204,9 @@ class Collection {
       await Collection.collection().doc(this.id).update({
         name: this.name,
         description: this.description,
+        instructions: this.instructions,
         icon: this.icon,
         color: this.color,
-        rules: this.rules,
         entryFormat: this.entryFormat,
         template: this.template,
         settings: this.settings,

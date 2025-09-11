@@ -30,10 +30,18 @@ router.post('/process-inference', async (req, res) => {
     const existingCollections = await Collection.findByUserId(userId);
     const collectionNames = existingCollections.map(c => c.name);
     
+    // Build instructions map for existing collections
+    const collectionInstructions = {};
+    existingCollections.forEach(col => {
+      if (col.instructions) {
+        collectionInstructions[col.name] = col.instructions;
+      }
+    });
+    
     console.log(`[WORKER-INFERENCE] Found ${existingCollections.length} existing collections`);
     
-    // Run inference
-    const inference = await inferCollectionFromContent(content, collectionNames);
+    // Run inference with instructions
+    const inference = await inferCollectionFromContent(content, collectionNames, collectionInstructions);
     
     if (!inference || !inference.collectionName) {
       console.log(`[WORKER-INFERENCE] No collection pattern detected for entry ${entryId}`);
@@ -64,6 +72,7 @@ router.post('/process-inference', async (req, res) => {
         userId: userId,
         name: details.name,
         description: inference.description || `Collection for ${details.name}`,
+        instructions: details.instructions || `Add entries related to ${details.name}`,
         icon: details.icon || '📝',
         color: details.color || '#6366f1',
         entryFormat: inference.entryFormat ? { fields: inference.entryFormat, version: 1 } : null,
