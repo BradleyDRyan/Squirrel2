@@ -239,7 +239,7 @@ router.post('/test-inference', async (req, res) => {
 });
 
 // Create collection from voice input
-router.post('/from-voice', async (req, res) => {
+router.post('/create-voice-collection', async (req, res) => {
   try {
     const { name, description } = req.body;
     

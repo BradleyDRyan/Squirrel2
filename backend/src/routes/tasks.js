@@ -116,7 +116,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Create task from voice input
-router.post('/from-voice', async (req, res) => {
+router.post('/create-voice-task', async (req, res) => {
   try {
     const { title, description, priority, dueDate } = req.body;
     

@@ -211,7 +211,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Create entry from voice input (extract_entries)
-router.post('/from-voice', async (req, res) => {
+router.post('/extract-voice-entry', async (req, res) => {
   try {
     const { content } = req.body;
     
