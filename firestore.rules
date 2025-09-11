@@ -18,7 +18,7 @@ service cloud.firestore {
       }
     }
     
-    // Allow authenticated users to read/write their own tasks
+    // Allow authenticated users to read all, write their own tasks
     match /tasks/{taskId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && 
@@ -27,7 +27,7 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid;
     }
     
-    // Allow authenticated users to read/write their own collections  
+    // Allow authenticated users to read all, write their own collections  
     match /collections/{collectionId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && 
@@ -36,11 +36,13 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid;
     }
     
-    // Allow authenticated users to read/write their own entries
+    // Allow authenticated users to read all, write their own entries
     match /entries/{entryId} {
-      allow read, write: if request.auth != null && 
-        (resource == null || resource.data.userId == request.auth.uid || 
-         request.resource.data.userId == request.auth.uid);
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
     }
     
     // Allow authenticated users to read/write their own spaces

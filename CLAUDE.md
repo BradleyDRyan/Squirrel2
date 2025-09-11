@@ -164,6 +164,21 @@ cd backend && vercel --prod
 
 ⚠️ **CRITICAL**: Vercel deploys from the Git repository, not local files. Always commit and push before running `vercel --prod` or your changes won't be deployed!
 
+## Firestore Security Rules
+
+**IMPORTANT**: After modifying `firestore.rules`, always deploy them:
+```bash
+firebase deploy --only firestore:rules
+```
+
+Common permission errors ("Missing or insufficient permissions") are usually fixed by:
+1. Checking that the collection is listed in `firestore.rules`
+2. Ensuring authenticated users can read (at minimum)
+3. Deploying the rules after any changes
+
+Current collections that need rules:
+- `users`, `conversations`, `messages`, `tasks`, `collections`, `entries`, `spaces`
+
 ## Key Development Principles
 
 ### 1. Security & Data Flow
