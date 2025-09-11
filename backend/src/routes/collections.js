@@ -3,6 +3,7 @@ const router = express.Router();
 const { Collection, Entry } = require('../models');
 const { verifyToken } = require('../middleware/auth');
 const { formatDatesInObject } = require('../utils/dateUtils');
+const { generateCollectionRules } = require('../services/collectionRules');
 
 router.use(verifyToken);
 
@@ -91,6 +92,65 @@ router.post('/:id/update-stats', async (req, res) => {
     const stats = await collection.updateStats();
     res.json({ stats });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate AI rules for a collection
+router.post('/:id/generate-rules', async (req, res) => {
+  try {
+    const collection = await Collection.findById(req.params.id);
+    if (!collection || collection.userId !== req.user.uid) {
+      return res.status(404).json({ error: 'Collection not found' });
+    }
+    
+    // Generate rules based on collection name and description
+    const rules = await generateCollectionRules(
+      collection.name, 
+      collection.description || req.body.description || ''
+    );
+    
+    // Update the collection with the generated rules
+    collection.rules = rules;
+    if (rules.description && !collection.description) {
+      collection.description = rules.description;
+    }
+    await collection.save();
+    
+    res.json({ 
+      success: true,
+      rules,
+      collection: {
+        id: collection.id,
+        name: collection.name,
+        description: collection.description
+      }
+    });
+  } catch (error) {
+    console.error('[Generate Rules] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate rules without updating collection (preview mode)
+router.post('/generate-rules-preview', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Collection name is required' });
+    }
+    
+    // Generate rules for preview
+    const rules = await generateCollectionRules(name, description || '');
+    
+    res.json({ 
+      success: true,
+      rules,
+      preview: true
+    });
+  } catch (error) {
+    console.error('[Generate Rules Preview] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
