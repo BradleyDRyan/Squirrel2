@@ -8,7 +8,7 @@ const initializeFirebase = () => {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       databaseURL: process.env.FIREBASE_DATABASE_URL,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel2-77579.appspot.com'
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel-2.firebasestorage.app'
     });
   } 
   // Check for individual Firebase credentials (Vercel deployment)
@@ -26,13 +26,13 @@ const initializeFirebase = () => {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       databaseURL: process.env.FIREBASE_DATABASE_URL,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel2-77579.appspot.com'
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel-2.firebasestorage.app'
     });
   } 
   // Default initialization (for environments with default credentials)
   else {
     admin.initializeApp({
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel2-77579.appspot.com'
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'squirrel-2.firebasestorage.app'
     });
   }
   
