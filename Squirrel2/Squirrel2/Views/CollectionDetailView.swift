@@ -8,9 +8,13 @@ import FirebaseAuth
 
 struct CollectionDetailView: View {
     let collection: Collection
-    @State private var entries: [Entry] = []
-    @State private var isLoading = true
-    @State private var refreshTimer: Timer?
+    @StateObject private var viewModel: CollectionDetailViewModel
+    @EnvironmentObject var firebaseManager: FirebaseManager
+    
+    init(collection: Collection) {
+        self.collection = collection
+        self._viewModel = StateObject(wrappedValue: CollectionDetailViewModel(collectionId: collection.id))
+    }
     
     var body: some View {
         ScrollView {
@@ -23,7 +27,7 @@ struct CollectionDetailView: View {
                         
                         Spacer()
                         
-                        Text("\(entries.count) entries")
+                        Text("\(viewModel.entries.count) entries")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -55,11 +59,11 @@ struct CollectionDetailView: View {
                 .cornerRadius(16)
                 
                 // Entries List
-                if isLoading {
+                if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                         .padding()
-                } else if entries.isEmpty {
+                } else if viewModel.entries.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 40))
@@ -78,7 +82,7 @@ struct CollectionDetailView: View {
                     .padding(.vertical, 40)
                 } else {
                     VStack(spacing: 12) {
-                        ForEach(entries) { entry in
+                        ForEach(viewModel.entries) { entry in
                             EntryCard(entry: entry, collectionColor: collection.color)
                         }
                     }
@@ -89,81 +93,12 @@ struct CollectionDetailView: View {
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.large)
         .onAppear {
-            loadEntries()
-            // Set up periodic refresh
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-                loadEntries()
+            if let userId = firebaseManager.currentUser?.uid {
+                viewModel.startListening(userId: userId)
             }
         }
         .onDisappear {
-            refreshTimer?.invalidate()
-            refreshTimer = nil
-        }
-    }
-    
-    private func loadEntries() {
-        guard let user = Auth.auth().currentUser else {
-            print("[CollectionDetailView] No authenticated user")
-            isLoading = false
-            return
-        }
-        
-        Task {
-            do {
-                print("[CollectionDetailView] Fetching entries for collection: \(collection.id)")
-                
-                // Get auth token
-                let token = try await user.getIDToken()
-                
-                // Make API request
-                guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections/\(collection.id)/entries") else {
-                    print("[CollectionDetailView] Invalid URL")
-                    isLoading = false
-                    return
-                }
-                
-                var request = URLRequest(url: url)
-                request.httpMethod = "GET"
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                
-                let (data, response) = try await URLSession.shared.data(for: request)
-                
-                if let httpResponse = response as? HTTPURLResponse {
-                    print("[CollectionDetailView] Response status: \(httpResponse.statusCode)")
-                    
-                    if httpResponse.statusCode != 200 {
-                        if let errorString = String(data: data, encoding: .utf8) {
-                            print("[CollectionDetailView] Error response: \(errorString)")
-                        }
-                        isLoading = false
-                        return
-                    }
-                }
-                
-                // Debug: Print raw response
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("[CollectionDetailView] Raw response: \(jsonString)")
-                }
-                
-                let decoder = JSONDecoder()
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                decoder.dateDecodingStrategy = .formatted(formatter)
-                let entriesResponse = try decoder.decode([Entry].self, from: data)
-                print("[CollectionDetailView] Decoded \(entriesResponse.count) entries")
-                
-                await MainActor.run {
-                    self.entries = entriesResponse.sorted { $0.createdAt > $1.createdAt }
-                    self.isLoading = false
-                }
-            } catch {
-                print("[CollectionDetailView] Error loading entries: \(error)")
-                print("[CollectionDetailView] Error details: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.isLoading = false
-                }
-            }
+            viewModel.stopListening()
         }
     }
 }

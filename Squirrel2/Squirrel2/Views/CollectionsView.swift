@@ -5,23 +5,20 @@
 
 import SwiftUI
 import FirebaseAuth
-import Foundation
 
 struct CollectionsView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
-    @State private var collections: [Collection] = []
-    @State private var isLoading = true
+    @StateObject private var viewModel = CollectionsViewModel()
     @State private var selectedCollection: Collection?
-    @State private var refreshTimer: Timer?
     
     var body: some View {
         NavigationStack {
             ScrollView {
-                if isLoading {
+                if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.top, 100)
-                } else if collections.isEmpty {
+                } else if viewModel.collections.isEmpty {
                     VStack(spacing: 20) {
                         Image(systemName: "folder.badge.plus")
                             .font(.system(size: 60))
@@ -43,7 +40,7 @@ struct CollectionsView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 16) {
-                        ForEach(collections) { collection in
+                        ForEach(viewModel.collections) { collection in
                             NavigationLink(destination: CollectionDetailView(collection: collection)) {
                                 CollectionCard(collection: collection)
                             }
@@ -57,81 +54,12 @@ struct CollectionsView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .onAppear {
-            loadCollections()
-            // Set up periodic refresh
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
-                loadCollections()
+            if let userId = firebaseManager.currentUser?.uid {
+                viewModel.startListening(userId: userId)
             }
         }
         .onDisappear {
-            refreshTimer?.invalidate()
-            refreshTimer = nil
-        }
-    }
-    
-    private func loadCollections() {
-        guard let user = Auth.auth().currentUser else {
-            print("[CollectionsView] No authenticated user")
-            isLoading = false
-            return
-        }
-        
-        Task {
-            do {
-                print("[CollectionsView] Fetching collections for user: \(user.uid)")
-                
-                // Get auth token
-                let token = try await user.getIDToken()
-                
-                // Make API request
-                guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections") else {
-                    print("[CollectionsView] Invalid URL")
-                    isLoading = false
-                    return
-                }
-                
-                var request = URLRequest(url: url)
-                request.httpMethod = "GET"
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                
-                let (data, response) = try await URLSession.shared.data(for: request)
-                
-                if let httpResponse = response as? HTTPURLResponse {
-                    print("[CollectionsView] Response status: \(httpResponse.statusCode)")
-                    
-                    if httpResponse.statusCode != 200 {
-                        if let errorString = String(data: data, encoding: .utf8) {
-                            print("[CollectionsView] Error response: \(errorString)")
-                        }
-                        isLoading = false
-                        return
-                    }
-                }
-                
-                // Debug: Print raw response
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("[CollectionsView] Raw response: \(jsonString)")
-                }
-                
-                let decoder = JSONDecoder()
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                decoder.dateDecodingStrategy = .formatted(formatter)
-                let collectionsResponse = try decoder.decode([Collection].self, from: data)
-                print("[CollectionsView] Decoded \(collectionsResponse.count) collections")
-                
-                await MainActor.run {
-                    self.collections = collectionsResponse
-                    self.isLoading = false
-                }
-            } catch {
-                print("[CollectionsView] Error loading collections: \(error)")
-                print("[CollectionsView] Error details: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.isLoading = false
-                }
-            }
+            viewModel.stopListening()
         }
     }
 }

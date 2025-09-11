@@ -2,14 +2,31 @@
 
 ## 🚨 CRITICAL: Architecture Rules
 
-### ALWAYS Use Backend API
-- **NEVER** access Firebase/Firestore directly from iOS for data operations
-- **ALWAYS** use the Node.js backend API at `https://backend-sigma-drab.vercel.app`
-- **CHECK** if a backend endpoint exists before implementing any feature
-- **CREATE** new backend endpoints when needed rather than direct database access
+### Hybrid Approach: Backend API + Real-time Updates
+- **WRITE OPERATIONS**: Always use the Node.js backend API at `https://backend-sigma-drab.vercel.app`
+- **READ OPERATIONS**: Use Firestore snapshot listeners for real-time updates
+- **RATIONALE**: This hybrid approach provides real-time updates while maintaining security and business logic in the backend
 
-### Backend-First Development
-When implementing any feature that involves data:
+### Real-time Updates Pattern
+```swift
+// ✅ CORRECT - Use Firestore snapshots for READING data (real-time updates)
+db.collection("collections")
+    .whereField("userId", isEqualTo: userId)
+    .addSnapshotListener { snapshot, error in
+        // Handle real-time updates
+    }
+
+// ✅ CORRECT - Use backend API for WRITING data (create, update, delete)
+let token = try await user.getIDToken()
+guard let url = URL(string: "\(AppConfig.apiBaseURL)/collections") else { return }
+var request = URLRequest(url: url)
+request.httpMethod = "POST" // or PUT, DELETE
+request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+// ... make request
+```
+
+### Backend-First Development for Write Operations
+When implementing any feature that modifies data:
 1. First check `/backend/src/routes/` for existing endpoints
 2. If endpoint doesn't exist, create it in the backend
 3. Test the endpoint with proper authentication

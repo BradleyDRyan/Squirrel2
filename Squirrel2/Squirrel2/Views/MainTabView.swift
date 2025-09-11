@@ -5,7 +5,6 @@
 
 import SwiftUI
 import FirebaseAuth
-import FirebaseFirestore
 
 struct MainTabView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
@@ -63,21 +62,22 @@ struct MainTabView: View {
 // Separate TasksTabView to organize the tasks UI
 struct TasksTabView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
-    @State private var tasks: [UserTask] = []
+    @StateObject private var viewModel = TasksViewModel()
     @State private var showingTaskDetail = false
     @State private var selectedTask: UserTask?
-    @State private var tasksListener: ListenerRegistration?
     @State private var showingSettings = false
-    
-    private let db = Firestore.firestore()
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                if !tasks.isEmpty {
+                if viewModel.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 100)
+                } else if !viewModel.tasks.isEmpty {
                     ScrollView {
                         VStack(spacing: 12) {
-                            ForEach(tasks.filter { $0.status == .pending }) { task in
+                            ForEach(viewModel.tasks.filter { $0.status == .pending }) { task in
                                 TaskRow(task: task) {
                                     selectedTask = task
                                     showingTaskDetail = true
@@ -126,55 +126,13 @@ struct TasksTabView: View {
             }
         }
         .onAppear {
-            startTasksListener()
+            if let userId = firebaseManager.currentUser?.uid {
+                viewModel.startListening(userId: userId)
+            }
         }
         .onDisappear {
-            tasksListener?.remove()
+            viewModel.stopListening()
         }
-    }
-    
-    private func startTasksListener() {
-        guard let userId = firebaseManager.currentUser?.uid else { return }
-        
-        tasksListener?.remove()
-        
-        tasksListener = db.collection("tasks")
-            .whereField("userId", isEqualTo: userId)
-            .whereField("status", isEqualTo: "pending")
-            .order(by: "createdAt", descending: true)
-            .limit(to: 10)
-            .addSnapshotListener { snapshot, error in
-                if let error = error {
-                    print("Error listening to tasks: \(error)")
-                    return
-                }
-                
-                guard let documents = snapshot?.documents else { return }
-                
-                self.tasks = documents.compactMap { document in
-                    let data = document.data()
-                    guard let title = data["title"] as? String,
-                          let statusString = data["status"] as? String,
-                          let userId = data["userId"] as? String else { return nil }
-                    
-                    return UserTask(
-                        id: document.documentID,
-                        userId: userId,
-                        spaceIds: data["spaceIds"] as? [String] ?? [],
-                        conversationId: data["conversationId"] as? String,
-                        title: title,
-                        description: data["description"] as? String ?? "",
-                        status: UserTask.TaskStatus(rawValue: statusString) ?? .pending,
-                        priority: UserTask.TaskPriority(rawValue: data["priority"] as? String ?? "medium") ?? .medium,
-                        dueDate: (data["dueDate"] as? Timestamp)?.dateValue(),
-                        completedAt: (data["completedAt"] as? Timestamp)?.dateValue(),
-                        tags: data["tags"] as? [String] ?? [],
-                        createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
-                        updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date(),
-                        metadata: data["metadata"] as? [String: String]
-                    )
-                }
-            }
     }
 }
 
