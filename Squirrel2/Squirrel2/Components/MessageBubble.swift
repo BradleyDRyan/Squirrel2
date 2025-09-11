@@ -22,7 +22,7 @@ struct MessageBubble: View {
                 Spacer(minLength: 50)
                 userMessage
             } else {
-                assistantMessagear
+                assistantMessage
                 Spacer(minLength: 50)
             }
         }
