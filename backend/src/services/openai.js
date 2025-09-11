@@ -6,7 +6,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const chatCompletion = async (messages, model = 'gpt-4o-mini') => {
+const chatCompletion = async (messages, model = 'gpt-4o-mini', options = {}) => {
   try {
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your-openai-api-key-here') {
       throw new Error('OpenAI API key not configured. Please add OPENAI_API_KEY to your .env file');
@@ -15,8 +15,8 @@ const chatCompletion = async (messages, model = 'gpt-4o-mini') => {
     const completion = await openai.chat.completions.create({
       model,
       messages,
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: options.temperature || 0.7,
+      max_tokens: options.max_tokens || 1000,
     });
 
     return completion.choices[0].message;

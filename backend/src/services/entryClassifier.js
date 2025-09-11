@@ -32,7 +32,10 @@ Return JSON only: { "isInteresting": boolean, "reasoning": "brief reason" }`;
       }
     ];
 
-    const response = await chatCompletion(messages, 'gpt-4o-mini');
+    const response = await chatCompletion(messages, 'gpt-4o-mini', {
+      temperature: 0.3,
+      max_tokens: 50  // Just need { "isInteresting": true, "reasoning": "short reason" }
+    });
     const responseText = response.content;
     
     try {
@@ -110,7 +113,10 @@ Return JSON only, no explanation:
       }
     ];
 
-    const response = await chatCompletion(messages, 'gpt-4o-mini');
+    const response = await chatCompletion(messages, 'gpt-4o-mini', {
+      temperature: 0.3,
+      max_tokens: 50  // Just need { "isInteresting": true, "reasoning": "short reason" }
+    });
     const responseText = response.content;
     
     // Parse the JSON response

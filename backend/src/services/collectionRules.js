@@ -36,7 +36,10 @@ Return ONLY valid JSON, no markdown or explanation.`;
       }
     ];
 
-    const response = await chatCompletion(messages, 'gpt-4o-mini');
+    const response = await chatCompletion(messages, 'gpt-4o-mini', {
+      temperature: 0.3,
+      max_tokens: 200  // Rules object with keywords, patterns, examples
+    });
     const rulesText = response.content;
     
     // Parse the JSON response
