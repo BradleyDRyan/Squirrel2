@@ -220,7 +220,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       return res.status(400).json({ error: 'Content is required' });
     }
     
-    console.log(`[VOICE-ENTRY] Creating entry from voice: "${content.substring(0, 50)}..."`);
+    console.log(`[VOICE-ENTRY] Step 1: Creating entry from voice: "${content.substring(0, 50)}..."`);
     
     // Get or create default space
     const { Space } = require('../models');
@@ -242,10 +242,10 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
     };
     
     const entry = await Entry.create(entryData);
-    console.log(`[VOICE-ENTRY] Created entry ${entry.id}`);
+    console.log(`[VOICE-ENTRY] Step 1 Complete: Created entry ${entry.id}`);
     
     // Queue inference for background processing
-    console.log(`[VOICE-ENTRY] Queueing collection inference for entry ${entry.id}`);
+    console.log(`[VOICE-ENTRY] Step 2: Queueing collection inference for entry ${entry.id}`);
     
     try {
       const { enqueueInference } = require('../services/queue');
@@ -254,10 +254,10 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       if (process.env.QSTASH_TOKEN) {
         // Queue the inference job for background processing
         const jobId = await enqueueInference(entry.id, req.user.uid, content);
-        console.log(`[VOICE-ENTRY] Inference job queued with ID: ${jobId}`);
+        console.log(`[VOICE-ENTRY] Step 2 Complete: Inference job queued with ID: ${jobId}`);
       } else {
         // Fallback to inline processing if QStash not configured
-        console.log(`[VOICE-ENTRY] QStash not configured, processing inline for entry ${entry.id}`);
+        console.log(`[VOICE-ENTRY] Step 2 Fallback: QStash not configured, processing inline for entry ${entry.id}`);
         
         const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
         const { Collection, CollectionEntry } = require('../models');
@@ -270,7 +270,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
         const inference = await inferCollectionFromContent(content, collectionNames);
         
         if (inference && inference.shouldCreateCollection) {
-          console.log(`[VOICE-ENTRY] Inference suggests collection: ${inference.collectionName}`);
+          console.log(`[VOICE-ENTRY] Step 3: Inference suggests collection: ${inference.collectionName}`);
           
           // Check if collection exists
           let collection = await Collection.findByName(req.user.uid, inference.collectionName);
@@ -298,7 +298,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
               }
             });
             
-            console.log(`[VOICE-ENTRY] Created collection ${collection.id}`);
+            console.log(`[VOICE-ENTRY] Step 4: Created collection ${collection.id}`);
           }
           
           // Create CollectionEntry with formatted data
@@ -313,11 +313,12 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
                 inferredAt: new Date()
               }
             });
+            console.log(`[VOICE-ENTRY] Step 5: Added entry to collection`);
           }
         }
       }
     } catch (inferenceError) {
-      console.error(`[VOICE-ENTRY] Inference queueing error:`, inferenceError.message);
+      console.error(`[VOICE-ENTRY] Step 2 Error: Inference queueing failed:`, inferenceError.message);
       // Continue - entry is already created
     }
     
