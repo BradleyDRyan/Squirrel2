@@ -6,6 +6,16 @@ const { inferCollectionFromContent, generateCollectionDetails } = require('../se
 // No authentication for worker routes - they're internal only
 // QStash will be the only one calling these endpoints
 
+// Health check endpoint - no auth required
+router.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    message: 'Worker endpoint is accessible',
+    timestamp: new Date().toISOString(),
+    version: '2.0.2'
+  });
+});
+
 /**
  * Process collection inference for an entry
  * Called by QStash after entry creation
