@@ -1,6 +1,6 @@
 const { Client } = require('@upstash/qstash');
 
-// Initialize QStash client
+// Initialize QStash client for background job processing
 const qstashClient = new Client({
   token: process.env.QSTASH_TOKEN || ''
 });
