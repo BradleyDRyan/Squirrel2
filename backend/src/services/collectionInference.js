@@ -77,11 +77,15 @@ Return ONLY valid JSON, no markdown or explanation.`;
     ];
 
     const response = await chatCompletion(messages, 'gpt-4o-mini');
+    console.log('[INFERENCE] AI response received:', response.content);
+    
     const result = JSON.parse(response.content);
+    console.log('[INFERENCE] Parsed result:', JSON.stringify(result, null, 2));
     
     return result;
   } catch (error) {
-    console.error('Error inferring collection from content:', error);
+    console.error('[INFERENCE] Error inferring collection from content:', error);
+    console.error('[INFERENCE] Error details:', error.message, error.stack);
     return null;
   }
 }

@@ -13,6 +13,108 @@ const activeSessions = new Map();
 // Export for use in websocket-server.js
 module.exports.activeSessions = activeSessions;
 
+// Helper function to sort entry to collection asynchronously
+async function sortEntryToCollection(entry, userId) {
+  try {
+    console.log(`[SORTER] Starting collection sorting for entry ${entry.id}`);
+    
+    const existingCollections = await Collection.findByUserId(userId);
+    let targetCollection = null;
+    let formattedData = { content: entry.content };
+    let wasInferred = false;
+    
+    // First try simple keyword matching
+    for (const collection of existingCollections) {
+      if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
+        const contentLower = entry.content.toLowerCase();
+        const matchedKeywords = collection.rules.keywords.filter(keyword => 
+          contentLower.includes(keyword.toLowerCase())
+        );
+        
+        if (matchedKeywords.length > 0) {
+          targetCollection = collection;
+          console.log(`[SORTER] Matched existing collection: "${collection.name}" by keywords`);
+          break;
+        }
+      }
+    }
+    
+    // If no match, use AI inference
+    if (!targetCollection) {
+      console.log(`[SORTER] No keyword match, using AI inference...`);
+      const inference = await inferCollectionFromContent(entry.content);
+      
+      if (inference && inference.shouldCreateCollection) {
+        console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
+        
+        // Check if suggested collection already exists
+        targetCollection = await Collection.findByName(userId, inference.collectionName);
+        
+        if (!targetCollection) {
+          // Create new collection with AI-generated details
+          console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
+          const details = await generateCollectionDetails(
+            inference.collectionName,
+            inference.description,
+            entry.content
+          );
+          
+          targetCollection = await Collection.create({
+            userId: userId,
+            name: details.name,
+            description: details.description,
+            icon: details.icon || '📝',
+            color: details.color || '#6366f1',
+            rules: details.rules,
+            entryFormat: details.entryFormat,
+            metadata: { 
+              source: 'voice_ai_sorter',
+              firstEntry: entry.id
+            }
+          });
+          
+          wasInferred = true;
+          console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
+        }
+        
+        // Use extracted data if available
+        if (inference.extractedData) {
+          formattedData = inference.extractedData;
+          console.log(`[SORTER] Using extracted data:`, formattedData);
+        }
+      }
+    }
+    
+    // If we have a collection, create the CollectionEntry link
+    if (targetCollection) {
+      const collectionEntry = await CollectionEntry.create({
+        entryId: entry.id,
+        collectionId: targetCollection.id,
+        userId: userId,
+        formattedData: formattedData,
+        metadata: {
+          source: 'voice',
+          wasInferred: wasInferred,
+          sortedAt: new Date()
+        }
+      });
+      
+      // Update collection stats
+      await targetCollection.updateStats();
+      
+      // Update entry metadata
+      entry.metadata.sortedToCollection = targetCollection.name;
+      await entry.save();
+      
+      console.log(`[SORTER] Entry ${entry.id} sorted to collection "${targetCollection.name}"`);
+    } else {
+      console.log(`[SORTER] Entry ${entry.id} remains unsorted`);
+    }
+  } catch (error) {
+    console.error('[SORTER] Error:', error);
+  }
+}
+
 // Generate a session token for the client
 router.post('/session', verifyToken, async (req, res) => {
   try {
@@ -73,15 +175,17 @@ router.post('/token', verifyToken, async (req, res) => {
         voice: 'shimmer',
         instructions: `You are a helpful assistant. Be concise and natural.
         
-When the user shares something entry-worthy (like ratings, reviews, notes, observations, ideas), use save_entry to capture it.
+When the user shares something entry-worthy (like ratings, reviews, notes, observations, ideas), use extract_entries to capture it.
 
-Don't worry about which collection it belongs to - just save any meaningful content the user shares.
+Don't worry about which collection it belongs to - just extract any meaningful content the user shares. The system will automatically sort it into the right collection.
 
 Examples of entry-worthy content:
 - "Boy Smells Ash candle is 8/10"
 - "Just watched Dune 2, amazing cinematography"
 - "Recipe: Mix flour, eggs, milk for pancakes"
 - "Idea: app that tracks mood with weather"
+- "The movie F1 with Brad Pitt: 7 out of 10"
+- "Life advice: get sun in the morning"
 
 For tasks and todos, use create_task.
 
@@ -142,8 +246,8 @@ Only use create_collection when explicitly asked.`,
           },
           {
             type: 'function',
-            name: 'save_entry',
-            description: 'Save any entry-worthy content the user shares',
+            name: 'extract_entries',
+            description: 'Extract and save any entry-worthy content the user shares',
             parameters: {
               type: 'object',
               properties: {
@@ -331,8 +435,8 @@ router.post('/function', verifyToken, async (req, res) => {
         };
         break;
         
-      case 'save_entry':
-        // Save entry and then determine collection via AI sorter
+      case 'extract_entries':
+        // Simply extract and save entries - no collection logic
         if (!args.content) {
           result = {
             success: false,
@@ -341,150 +445,39 @@ router.post('/function', verifyToken, async (req, res) => {
           break;
         }
         
-        console.log(`[SAVE_ENTRY] Processing: "${args.content}"`);
+        console.log(`[EXTRACT_ENTRIES] Processing: "${args.content}"`);
         
-        // Step 1: Create the raw entry first (no collection assignment yet)
-        const saveEntrySpace = await Space.findDefaultSpace(userId) || 
-                               await Space.createDefaultSpace(userId);
-        const saveEntrySpaceIds = saveEntrySpace ? [saveEntrySpace.id] : [];
+        // Get or create default space
+        const extractSpace = await Space.findDefaultSpace(userId) || 
+                           await Space.createDefaultSpace(userId);
+        const extractSpaceIds = extractSpace ? [extractSpace.id] : [];
         
-        const savedEntry = await Entry.create({
+        // Create the raw entry
+        const extractedEntry = await Entry.create({
           userId: userId,
           title: '',
           content: args.content,
           type: 'journal',
           tags: [],
-          spaceIds: saveEntrySpaceIds,
+          spaceIds: extractSpaceIds,
           metadata: { 
             source: 'voice',
-            pendingSorting: true
+            extractedAt: new Date()
           }
         });
         
-        console.log(`[SAVE_ENTRY] Created entry ${savedEntry.id}`);
+        console.log(`[EXTRACT_ENTRIES] Created entry ${extractedEntry.id}`);
         
-        // Step 2: Use AI to determine collection (async post-processing)
-        let targetCollection = null;
-        let formattedData = { content: args.content };
-        let wasInferred = false;
+        // Run async collection sorting in the background (fire and forget)
+        sortEntryToCollection(extractedEntry, userId).catch(err => {
+          console.error('[EXTRACT_ENTRIES] Background sorting error:', err);
+        });
         
-        try {
-          // Check existing collections first
-          const existingCollections = await Collection.findByUserId(userId);
-          let matchedCollection = null;
-          
-          // First try simple pattern matching
-          for (const collection of existingCollections) {
-            if (collection.rules && collection.rules.keywords && collection.rules.keywords.length > 0) {
-              const contentLower = args.content.toLowerCase();
-              const matchedKeywords = collection.rules.keywords.filter(keyword => 
-                contentLower.includes(keyword.toLowerCase())
-              );
-              
-              if (matchedKeywords.length > 0) {
-                matchedCollection = collection;
-                console.log(`[SORTER] Matched existing collection: "${collection.name}" by keywords`);
-                break;
-              }
-            }
-          }
-          
-          // If no match, use AI inference
-          if (!matchedCollection) {
-            console.log(`[SORTER] No keyword match, using AI inference...`);
-            const inference = await inferCollectionFromContent(args.content);
-            
-            if (inference && inference.shouldCreateCollection) {
-              console.log(`[SORTER] AI suggests collection: "${inference.collectionName}"`);
-              
-              // Check if suggested collection already exists
-              targetCollection = await Collection.findByName(userId, inference.collectionName);
-              
-              if (!targetCollection) {
-                // Create new collection with AI-generated details
-                console.log(`[SORTER] Creating new collection: "${inference.collectionName}"`);
-                const details = await generateCollectionDetails(
-                  inference.collectionName,
-                  inference.description,
-                  args.content
-                );
-                
-                targetCollection = await Collection.create({
-                  userId: userId,
-                  name: details.name,
-                  description: details.description,
-                  icon: details.icon || '📝',
-                  color: details.color || '#6366f1',
-                  rules: details.rules,
-                  entryFormat: details.entryFormat,
-                  metadata: { 
-                    source: 'voice_ai_sorter',
-                    firstEntry: savedEntry.id
-                  }
-                });
-                
-                wasInferred = true;
-                console.log(`[SORTER] Created new collection: "${targetCollection.name}"`);
-              }
-              
-              // Use extracted data if available
-              if (inference.extractedData) {
-                formattedData = inference.extractedData;
-                console.log(`[SORTER] Using extracted data:`, formattedData);
-              }
-            }
-          } else {
-            targetCollection = matchedCollection;
-          }
-        } catch (sortingError) {
-          console.error('[SORTER] Error:', sortingError);
-        }
-        
-        // Step 3: If we have a collection, create the CollectionEntry link
-        if (targetCollection) {
-          const collectionEntry = await CollectionEntry.create({
-            entryId: savedEntry.id,
-            collectionId: targetCollection.id,
-            userId: userId,
-            formattedData: formattedData,
-            metadata: {
-              source: 'voice',
-              wasInferred: wasInferred,
-              sortedAt: new Date()
-            }
-          });
-          
-          // Update collection stats
-          await targetCollection.updateStats();
-          
-          // Update entry metadata to remove pending flag
-          savedEntry.metadata.pendingSorting = false;
-          savedEntry.metadata.sortedToCollection = targetCollection.name;
-          await savedEntry.save();
-          
-          console.log(`[SORTER] Entry ${savedEntry.id} sorted to collection "${targetCollection.name}"`);
-          
-          result = {
-            success: true,
-            entryId: savedEntry.id,
-            collectionEntryId: collectionEntry.id,
-            collectionId: targetCollection.id,
-            collectionName: targetCollection.name,
-            message: wasInferred 
-              ? `Saved and created "${targetCollection.name}" collection` 
-              : `Saved to "${targetCollection.name}"`,
-            wasInferred: wasInferred
-          };
-        } else {
-          // No collection matched or created - entry stays unsorted
-          console.log(`[SORTER] Entry ${savedEntry.id} remains unsorted`);
-          result = {
-            success: true,
-            entryId: savedEntry.id,
-            message: `Entry saved (unsorted)`,
-            unsorted: true
-          };
-        }
+        result = {
+          success: true,
+          entryId: extractedEntry.id,
+          message: 'Entry extracted successfully'
+        };
         break;
         
       case 'create_entry':
