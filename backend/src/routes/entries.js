@@ -252,9 +252,15 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
       
       // Check if we have QStash configured
       if (process.env.QSTASH_TOKEN) {
-        // Queue the inference job for background processing
-        const jobId = await enqueueInference(entry.id, req.user.uid, content);
-        console.log(`[VOICE-ENTRY] Step 2 Complete: Inference job queued with ID: ${jobId}`);
+        try {
+          // Queue the inference job for background processing
+          const jobId = await enqueueInference(entry.id, req.user.uid, content);
+          console.log(`[VOICE-ENTRY] Step 2 Complete: Inference job queued with ID: ${jobId}`);
+        } catch (qstashError) {
+          console.error(`[VOICE-ENTRY] Step 2 QStash Error:`, qstashError.message);
+          console.log(`[VOICE-ENTRY] Step 2 Fallback: QStash failed, processing inline for entry ${entry.id}`);
+          throw qstashError; // Re-throw to trigger inline processing below
+        }
       } else {
         // Fallback to inline processing if QStash not configured
         console.log(`[VOICE-ENTRY] Step 2 Fallback: QStash not configured, processing inline for entry ${entry.id}`);

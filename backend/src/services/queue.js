@@ -18,10 +18,13 @@ const getWorkerUrl = (path) => {
  */
 async function enqueueInference(entryId, userId, content) {
   try {
+    const workerUrl = getWorkerUrl('/process-inference');
     console.log(`[QUEUE] Enqueuing inference for entry ${entryId}`);
+    console.log(`[QUEUE] Worker URL: ${workerUrl}`);
+    console.log(`[QUEUE] QStash token present: ${!!process.env.QSTASH_TOKEN}`);
     
     const response = await qstashClient.publishJSON({
-      url: getWorkerUrl('/process-inference'),
+      url: workerUrl,
       body: {
         entryId,
         userId,
@@ -36,6 +39,11 @@ async function enqueueInference(entryId, userId, content) {
     return response.messageId;
   } catch (error) {
     console.error('[QUEUE] Failed to enqueue inference:', error);
+    console.error('[QUEUE] Error details:', error.message);
+    if (error.response) {
+      console.error('[QUEUE] Response status:', error.response.status);
+      console.error('[QUEUE] Response data:', error.response.data);
+    }
     throw error;
   }
 }
