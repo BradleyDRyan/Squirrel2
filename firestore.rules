@@ -51,5 +51,14 @@ service cloud.firestore {
         (resource == null || resource.data.userId == request.auth.uid || 
          request.resource.data.userId == request.auth.uid);
     }
+    
+    // Allow authenticated users to read all, write their own collection entries
+    match /collection_entries/{entryId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
   }
 }

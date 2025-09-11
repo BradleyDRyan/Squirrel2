@@ -24,6 +24,7 @@ struct Entry: Identifiable, Codable {
         case reflection = "reflection"
         case gratitude = "gratitude"
         case dream = "dream"
+        case photo = "photo"
     }
     
     enum Mood: String, Codable, CaseIterable {
@@ -113,6 +114,54 @@ struct Entry: Identifiable, Codable {
         case .grateful: return "🙏"
         case .neutral: return "😐"
         }
+    }
+    
+    // Helper properties for photos
+    var isPhoto: Bool {
+        return type == .photo
+    }
+    
+    var hasImage: Bool {
+        return metadata?["hasImage"] == "true"
+    }
+    
+    var imageDataString: String? {
+        return metadata?["imageData"]
+    }
+    
+    // Initialize with proper defaults
+    init(id: String = UUID().uuidString,
+         userId: String,
+         collectionIds: [String],
+         spaceIds: [String],
+         conversationId: String? = nil,
+         title: String,
+         content: String,
+         type: EntryType,
+         mood: Mood? = nil,
+         tags: [String] = [],
+         attachments: [String] = [],
+         location: Location? = nil,
+         weather: Weather? = nil,
+         createdAt: Date = Date(),
+         updatedAt: Date = Date(),
+         metadata: [String: String]? = nil) {
+        self.id = id
+        self.userId = userId
+        self.collectionIds = collectionIds
+        self.spaceIds = spaceIds
+        self.conversationId = conversationId
+        self.title = title
+        self.content = content
+        self.type = type
+        self.mood = mood
+        self.tags = tags
+        self.attachments = attachments
+        self.location = location
+        self.weather = weather
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.metadata = metadata
     }
 }
 

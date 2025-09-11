@@ -4,7 +4,7 @@ const { verifyToken, optionalAuth } = require('../middleware/auth');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const axios = require('axios');
-const { UserTask, Space, Entry, Collection } = require('../models');
+const { UserTask, Space, Entry, Collection, CollectionEntry } = require('../models');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -329,7 +329,7 @@ router.post('/function', verifyToken, async (req, res) => {
         break;
         
       case 'save_entry':
-        // Direct save to collection
+        // Direct save to collection using new architecture
         if (!args.content || !args.collectionName) {
           result = {
             success: false,
@@ -346,10 +346,9 @@ router.post('/function', verifyToken, async (req, res) => {
                                await Space.createDefaultSpace(userId);
         const saveEntrySpaceIds = saveEntrySpace ? [saveEntrySpace.id] : [];
         
-        // Create the entry
+        // Create the raw entry (no collectionIds anymore)
         const savedEntry = await Entry.create({
           userId: userId,
-          collectionIds: [targetCollection.id],  // Entry can belong to multiple collections
           title: '',
           content: args.content,
           type: 'journal',
@@ -360,12 +359,28 @@ router.post('/function', verifyToken, async (req, res) => {
           }
         });
         
+        // Create CollectionEntry to link entry to collection
+        const collectionEntry = await CollectionEntry.create({
+          entryId: savedEntry.id,
+          collectionId: targetCollection.id,
+          userId: userId,
+          formattedData: {
+            // For now, just store the raw content
+            // Later, AI extraction can format this based on collection.entryFormat
+            content: args.content
+          },
+          metadata: {
+            source: 'voice'
+          }
+        });
+        
         // Update collection stats
         await targetCollection.updateStats();
         
         result = {
           success: true,
           entryId: savedEntry.id,
+          collectionEntryId: collectionEntry.id,
           collectionId: targetCollection.id,
           collectionName: targetCollection.name,
           message: `Saved to "${targetCollection.name}"`
@@ -410,10 +425,9 @@ router.post('/function', verifyToken, async (req, res) => {
                                   await Space.createDefaultSpace(userId);
         const entrySpaceIds = entryDefaultSpace ? [entryDefaultSpace.id] : [];
         
-        // Create the entry
+        // Create the raw entry (no collectionIds)
         const entryData = {
           userId: userId,
-          collectionIds: [entryTargetCollection.id],  // Entry can belong to multiple collections
           title: args.title || '',
           content: entryContent,
           type: 'journal',
@@ -428,18 +442,36 @@ router.post('/function', verifyToken, async (req, res) => {
         
         const entry = await Entry.create(entryData);
         
+        // Create CollectionEntry to link entry to collection
+        const newCollectionEntry = await CollectionEntry.create({
+          entryId: entry.id,
+          collectionId: entryTargetCollection.id,
+          userId: userId,
+          formattedData: {
+            // For now, just store the raw content
+            // Later, AI extraction can format this based on collection.entryFormat
+            content: entryContent
+          },
+          metadata: {
+            source: 'voice',
+            wasMatched: !!matchResult,
+            matchConfidence: matchResult ? matchResult.confidence : 1.0
+          }
+        });
+        
         // Update collection stats
         await entryTargetCollection.updateStats();
         
         result = {
           success: true,
           entryId: entry.id,
+          collectionEntryId: newCollectionEntry.id,
           collectionId: entryTargetCollection.id,
           collectionName: entryTargetCollection.name,
           message: `Entry saved to "${entryTargetCollection.name}" collection`,
           wasMatched: !!matchResult
         };
-        console.log(`Created entry ${entry.id} in collection "${entryTargetCollection.name}" for user ${userId}`);
+        console.log(`Created entry ${entry.id} with CollectionEntry ${newCollectionEntry.id} in collection "${entryTargetCollection.name}" for user ${userId}`);
         break;
         
       default:

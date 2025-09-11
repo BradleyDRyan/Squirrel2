@@ -20,11 +20,17 @@ struct MainTabView: View {
                     }
                     .tag(0)
                 
+                PhotosView()
+                    .tabItem {
+                        Label("Photos", systemImage: "photo.fill")
+                    }
+                    .tag(1)
+                
                 CollectionsView()
                     .tabItem {
                         Label("Collections", systemImage: "folder.fill")
                     }
-                    .tag(1)
+                    .tag(2)
             }
             
             // Floating + button
