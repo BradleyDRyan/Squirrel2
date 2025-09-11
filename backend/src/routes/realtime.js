@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 const axios = require('axios');
 const { UserTask, Space, Entry, Collection, CollectionEntry } = require('../models');
+const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
 
 // Store active sessions temporarily (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -329,17 +330,77 @@ router.post('/function', verifyToken, async (req, res) => {
         break;
         
       case 'save_entry':
-        // Direct save to collection using new architecture
-        if (!args.content || !args.collectionName) {
+        // Enhanced save with AI inference for the "hard path"
+        if (!args.content) {
           result = {
             success: false,
-            message: 'Content and collection name are required'
+            message: 'Content is required'
           };
           break;
         }
         
-        // Find or create the collection
-        const targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
+        let targetCollection = null;
+        let formattedData = { content: args.content };
+        let wasInferred = false;
+        
+        // Easy path: collection name provided explicitly
+        if (args.collectionName) {
+          targetCollection = await Collection.findOrCreateByName(userId, args.collectionName);
+        } else {
+          // Hard path: Try to infer collection from content
+          console.log(`[INFERENCE] Attempting to infer collection from: "${args.content}"`);
+          
+          try {
+            const inference = await inferCollectionFromContent(args.content);
+            
+            if (inference && inference.shouldCreateCollection) {
+              console.log(`[INFERENCE] AI suggests creating collection: "${inference.collectionName}"`);
+              
+              // Check if collection already exists
+              targetCollection = await Collection.findByName(userId, inference.collectionName);
+              
+              if (!targetCollection) {
+                // Create new collection with AI-generated details
+                const details = await generateCollectionDetails(
+                  inference.collectionName,
+                  inference.description,
+                  args.content
+                );
+                
+                targetCollection = await Collection.create({
+                  userId: userId,
+                  name: details.name,
+                  description: details.description,
+                  icon: details.icon || '📝',
+                  color: details.color || '#6366f1',
+                  rules: details.rules,
+                  entryFormat: details.entryFormat,
+                  metadata: { 
+                    source: 'voice_inference',
+                    firstEntry: args.content
+                  }
+                });
+                
+                console.log(`[INFERENCE] Created new collection: "${targetCollection.name}" with entry format`);
+                wasInferred = true;
+              }
+              
+              // Use extracted data if available
+              if (inference.extractedData) {
+                formattedData = inference.extractedData;
+                console.log(`[INFERENCE] Using extracted data:`, formattedData);
+              }
+            }
+          } catch (inferenceError) {
+            console.error('[INFERENCE] Error:', inferenceError);
+            // Fall back to default collection
+          }
+        }
+        
+        // If still no collection, use or create a default one
+        if (!targetCollection) {
+          targetCollection = await Collection.findOrCreateByName(userId, 'General Notes', 'General notes and thoughts');
+        }
         
         // Get or create default space
         const saveEntrySpace = await Space.findDefaultSpace(userId) || 
@@ -355,7 +416,8 @@ router.post('/function', verifyToken, async (req, res) => {
           tags: [],
           spaceIds: saveEntrySpaceIds,
           metadata: { 
-            source: 'voice'
+            source: 'voice',
+            wasInferred: wasInferred
           }
         });
         
@@ -364,13 +426,10 @@ router.post('/function', verifyToken, async (req, res) => {
           entryId: savedEntry.id,
           collectionId: targetCollection.id,
           userId: userId,
-          formattedData: {
-            // For now, just store the raw content
-            // Later, AI extraction can format this based on collection.entryFormat
-            content: args.content
-          },
+          formattedData: formattedData,
           metadata: {
-            source: 'voice'
+            source: 'voice',
+            wasInferred: wasInferred
           }
         });
         
@@ -383,7 +442,10 @@ router.post('/function', verifyToken, async (req, res) => {
           collectionEntryId: collectionEntry.id,
           collectionId: targetCollection.id,
           collectionName: targetCollection.name,
-          message: `Saved to "${targetCollection.name}"`
+          message: wasInferred 
+            ? `Created "${targetCollection.name}" collection and saved entry` 
+            : `Saved to "${targetCollection.name}"`,
+          wasInferred: wasInferred
         };
         break;
         
