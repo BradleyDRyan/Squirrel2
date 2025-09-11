@@ -11,12 +11,6 @@ const activeSessions = new Map();
 // Export for use in websocket-server.js
 module.exports.activeSessions = activeSessions;
 
-// Generate internal service secret if not set
-if (!process.env.INTERNAL_SERVICE_SECRET) {
-  process.env.INTERNAL_SERVICE_SECRET = crypto.randomBytes(32).toString('hex');
-  console.log('[REALTIME] Generated internal service secret');
-}
-
 // Generate a session token for the client
 router.post('/session', verifyToken, async (req, res) => {
   try {
@@ -242,12 +236,14 @@ router.post('/function', verifyToken, async (req, res) => {
         break;
     }
     
-    // Make the API call using internal service authentication
+    // Get the user's Firebase token from the request
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    // Make the API call using the user's token
     try {
       const response = await axios.post(apiUrl, body, {
         headers: {
-          'Authorization': `Bearer ${process.env.INTERNAL_SERVICE_SECRET}`,
-          'X-User-Id': userId,  // Pass user ID in header for service auth
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
