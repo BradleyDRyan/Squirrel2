@@ -22,11 +22,15 @@ router.use(verifyToken);
 // Process and save a photo
 router.post('/process', upload.single('photo'), async (req, res) => {
   try {
+    console.log('[Photos] Processing photo upload for user:', req.user?.uid);
     const userId = req.user.uid;
     
     if (!req.file) {
+      console.error('[Photos] No file in request');
       return res.status(400).json({ error: 'No photo provided' });
     }
+    
+    console.log('[Photos] File received:', req.file.mimetype, 'Size:', req.file.size);
     
     // Convert image to base64
     const base64Image = req.file.buffer.toString('base64');
@@ -37,6 +41,7 @@ router.post('/process', upload.single('photo'), async (req, res) => {
     const collectionNames = collections.map(c => c.name).join(', ') || 'no collections yet';
     
     // Use OpenAI Vision API to analyze the image
+    console.log('[Photos] Analyzing image with OpenAI Vision API...');
     const visionResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -79,7 +84,9 @@ Respond in JSON format:
       temperature: 0.3
     });
     
+    console.log('[Photos] Vision API response:', visionResponse.choices[0].message.content);
     const analysis = JSON.parse(visionResponse.choices[0].message.content);
+    console.log('[Photos] Analysis:', analysis);
     
     // Find or create the collection
     let targetCollection;
@@ -125,8 +132,22 @@ Respond in JSON format:
     
   } catch (error) {
     console.error('[Photos] Error processing photo:', error);
-    res.status(500).json({ 
-      error: 'Failed to process photo',
+    console.error('[Photos] Error stack:', error.stack);
+    
+    // More specific error messages
+    let errorMessage = 'Failed to process photo';
+    let statusCode = 500;
+    
+    if (error.message?.includes('OpenAI')) {
+      errorMessage = 'Failed to analyze image';
+    } else if (error.message?.includes('Collection')) {
+      errorMessage = 'Failed to create or find collection';
+    } else if (error.message?.includes('Entry')) {
+      errorMessage = 'Failed to save photo entry';
+    }
+    
+    res.status(statusCode).json({ 
+      error: errorMessage,
       details: error.message 
     });
   }
