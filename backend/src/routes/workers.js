@@ -3,34 +3,8 @@ const router = express.Router();
 const { Entry, Collection, CollectionEntry } = require('../models');
 const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
 
-// Verify QStash signature for security
-function verifyQStashSignature(req, res, next) {
-  // QStash sends requests with a signature header for verification
-  const signature = req.headers['upstash-signature'];
-  
-  // Log the request for debugging
-  console.log('[WORKER] Request received:', {
-    path: req.path,
-    headers: {
-      'upstash-signature': signature ? 'present' : 'missing',
-      'content-type': req.headers['content-type']
-    },
-    body: req.body ? Object.keys(req.body) : 'no body'
-  });
-  
-  // For now, just check that the signature exists
-  // In production, you'd verify this against QSTASH_CURRENT_SIGNING_KEY
-  if (!signature) {
-    console.log('[WORKER] Rejected: No QStash signature');
-    return res.status(401).json({ error: 'No QStash signature provided' });
-  }
-  
-  console.log('[WORKER] Signature verified, proceeding with request');
-  next();
-}
-
-// Apply verification to all worker routes
-router.use(verifyQStashSignature);
+// No authentication for worker routes - they're internal only
+// QStash will be the only one calling these endpoints
 
 /**
  * Process collection inference for an entry
