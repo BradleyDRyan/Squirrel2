@@ -32,6 +32,10 @@ class Message {
       metadata: message.metadata
     });
     message.id = docRef.id;
+    
+    // Update the document with its ID
+    await docRef.update({ id: docRef.id });
+    
     return message;
   }
 

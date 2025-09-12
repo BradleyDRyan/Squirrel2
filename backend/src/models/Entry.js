@@ -53,6 +53,10 @@ class Entry {
       metadata: entry.metadata
     });
     entry.id = docRef.id;
+    
+    // Update the document with its ID
+    await docRef.update({ id: docRef.id });
+    
     return entry;
   }
 
