@@ -20,7 +20,8 @@ class Entry {
     this.attachments = data.attachments || [];
     this.location = data.location || null;
     this.weather = data.weather || null;
-    this.imageUrl = data.imageUrl || null; // Add imageUrl field
+    this.photoId = data.photoId || null; // Reference to Photo object
+    this.imageUrl = data.imageUrl || null; // Backward compatibility
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
     this.metadata = data.metadata || {};
@@ -45,6 +46,7 @@ class Entry {
       attachments: entry.attachments,
       location: entry.location,
       weather: entry.weather,
+      photoId: entry.photoId,
       imageUrl: entry.imageUrl,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
@@ -142,6 +144,8 @@ class Entry {
         attachments: this.attachments,
         location: this.location,
         weather: this.weather,
+        photoId: this.photoId,
+        imageUrl: this.imageUrl,
         updatedAt: this.updatedAt,
         metadata: this.metadata
       });

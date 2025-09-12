@@ -10,6 +10,7 @@ struct CollectionsView: View {
     @EnvironmentObject var firebaseManager: FirebaseManager
     @StateObject private var viewModel = CollectionsViewModel()
     @State private var selectedCollection: Collection?
+    @Namespace private var namespace
     
     var body: some View {
         NavigationStack {
@@ -41,8 +42,11 @@ struct CollectionsView: View {
                         GridItem(.flexible())
                     ], spacing: 16) {
                         ForEach(viewModel.collections) { collection in
-                            NavigationLink(destination: CollectionDetailView(collection: collection)) {
+                            NavigationLink(destination: CollectionDetailView(collection: collection)
+                                .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
+                            ) {
                                 CollectionCard(collection: collection)
+                                    .matchedTransitionSource(id: collection.id, in: namespace)
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
@@ -50,6 +54,7 @@ struct CollectionsView: View {
                     .padding()
                 }
             }
+            .background(Color(.systemGray6))
             .navigationTitle("Collections")
             .navigationBarTitleDisplayMode(.large)
         }
@@ -68,10 +73,10 @@ struct CollectionCard: View {
     let collection: Collection
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(collection.icon)
-                    .font(.system(size: 32))
+                    .font(.system(size: 28))
                 
                 Spacer()
                 
@@ -82,7 +87,7 @@ struct CollectionCard: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.1))
+                        .background(Color(.systemGray6))
                         .cornerRadius(8)
                 }
             }
@@ -92,19 +97,14 @@ struct CollectionCard: View {
                 .foregroundColor(.primary)
                 .lineLimit(1)
             
-            if !collection.instructions.isEmpty {
-                Text(collection.instructions)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
+            Spacer()
         }
         .padding()
-        .frame(maxWidth: .infinity, minHeight: 120)
-        .background(Color(hex: collection.color).opacity(0.1))
+        .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96)
+        .background(Color.white)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: collection.color).opacity(0.3), lineWidth: 1)
+                .stroke(Color(.systemGray5), lineWidth: 1)
         )
         .cornerRadius(12)
     }

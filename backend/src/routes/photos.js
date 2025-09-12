@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
-const { Collection, Entry, Space, Conversation, Message } = require('../models');
+const { Collection, Entry, Space, Conversation, Message, Photo } = require('../models');
 const multer = require('multer');
 const OpenAI = require('openai');
 const { getStorage } = require('firebase-admin/storage');
@@ -75,6 +75,44 @@ router.post('/process', upload.single('photo'), async (req, res) => {
     console.log('✅ [Photos] Photo uploaded successfully!');
     console.log('🔗 [Photos] Public URL:', publicUrl);
     
+    // Create Photo object in database
+    console.log('📸 [Photos] Creating Photo object...');
+    const photo = await Photo.create({
+      userId: userId,
+      urls: {
+        original: publicUrl,
+        // Thumbnails will be added later via background processing
+        thumbnail: null,
+        small: null,
+        medium: null,
+        large: null
+      },
+      storagePaths: {
+        original: fileName,
+        thumbnail: null,
+        small: null,
+        medium: null,
+        large: null
+      },
+      mimeType: req.file.mimetype,
+      originalSize: req.file.size,
+      dimensions: {
+        width: null, // Will be extracted during processing
+        height: null
+      },
+      analysis: {
+        description: '',  // Will be filled after AI analysis
+        collectionName: '',
+        suggestedTitle: '',
+        tags: []
+      },
+      metadata: {
+        source: 'camera',
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    console.log('✅ [Photos] Photo object created with ID:', photo.id);
+    
     // Convert image to base64 for OpenAI Vision API
     const base64Image = req.file.buffer.toString('base64');
     const imageUrl = `data:${req.file.mimetype};base64,${base64Image}`;
@@ -136,6 +174,16 @@ Respond in JSON format:
     console.log('  🆕 Create new collection:', analysis.createNewCollection);
     console.log('  🏷️ Suggested title:', analysis.suggestedTitle);
     
+    // Update Photo with AI analysis
+    photo.analysis = {
+      description: analysis.description,
+      collectionName: analysis.collectionName,
+      suggestedTitle: analysis.suggestedTitle,
+      tags: ['photo']
+    };
+    await photo.updateSizes({});  // This updates the analysis in the database
+    console.log('✅ [Photos] Photo analysis saved');
+    
     // Find or create the collection
     let targetCollection;
     if (analysis.createNewCollection || !collections.find(c => c.name === analysis.collectionName)) {
@@ -192,8 +240,10 @@ Respond in JSON format:
       userId: userId,
       content: 'Photo captured',
       type: 'photo',
-      attachments: [publicUrl],
+      photoId: photo.id,  // Reference to Photo object
+      attachments: [publicUrl],  // Keep for backward compatibility
       metadata: {
+        photoId: photo.id,
         imageUrl: publicUrl,
         storagePath: fileName
       }
@@ -226,12 +276,14 @@ Respond in JSON format:
       type: 'photo',
       tags: ['photo'],
       spaceIds: spaceIds,
-      imageUrl: publicUrl, // Store Firebase Storage URL at top level
+      photoId: photo.id,  // Reference to Photo object
+      imageUrl: publicUrl, // Keep for backward compatibility
       metadata: { 
         source: 'camera',
         hasImage: true,
-        storagePath: fileName, // Store the path for potential deletion later
-        addedToExistingConversation: !!conversationId // Track if this was added to existing conversation
+        photoId: photo.id,
+        storagePath: fileName,
+        addedToExistingConversation: !!conversationId
       }
     });
     console.log('✅ [Photos] Entry created:', entry.id);
@@ -247,8 +299,9 @@ Respond in JSON format:
     
     const responseData = {
       success: true,
+      photoId: photo.id,  // Include Photo ID
       conversationId: conversation.id,
-      entryId: entry.id, // Now always has an entry
+      entryId: entry.id,
       collectionId: targetCollection.id,
       collectionName: targetCollection.name,
       description: analysis.description,
@@ -259,10 +312,11 @@ Respond in JSON format:
     
     console.log('🎉 [Photos] ========== PHOTO PROCESSING COMPLETE ==========');
     console.log('📊 [Photos] Summary:');
+    console.log('  🆔 Photo ID:', photo.id);
     console.log('  📸 Photo URL:', publicUrl);
     console.log('  📁 Collection:', targetCollection.name);
     console.log('  💬 Conversation:', conversation.id);
-    console.log('  📝 Entry:', entry.id); // Always has an entry now
+    console.log('  📝 Entry:', entry.id);
     console.log('  📱 Shows in Photos tab: Yes');
     console.log('============================================');
     

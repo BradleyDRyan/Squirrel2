@@ -6,6 +6,7 @@ const Thought = require('./Thought');
 const Space = require('./Space');
 const Collection = require('./Collection');
 const CollectionEntry = require('./CollectionEntry');
+const Photo = require('./Photo');
 
 module.exports = {
   Conversation,
@@ -15,5 +16,6 @@ module.exports = {
   Thought,
   Space,
   Collection,
-  CollectionEntry
+  CollectionEntry,
+  Photo
 };

@@ -7,7 +7,8 @@ class Message {
     this.userId = data.userId || null;
     this.content = data.content || '';
     this.type = data.type || 'text';
-    this.attachments = data.attachments || [];
+    this.photoId = data.photoId || null; // Reference to Photo object
+    this.attachments = data.attachments || []; // Backward compatibility
     this.createdAt = data.createdAt || new Date();
     this.editedAt = data.editedAt || null;
     this.metadata = data.metadata || {};
@@ -24,6 +25,7 @@ class Message {
       userId: message.userId,
       content: message.content,
       type: message.type,
+      photoId: message.photoId,
       attachments: message.attachments,
       createdAt: message.createdAt,
       editedAt: message.editedAt,
@@ -56,6 +58,7 @@ class Message {
       this.editedAt = new Date();
       await Message.collection().doc(this.id).update({
         content: this.content,
+        photoId: this.photoId,
         attachments: this.attachments,
         editedAt: this.editedAt,
         metadata: this.metadata
