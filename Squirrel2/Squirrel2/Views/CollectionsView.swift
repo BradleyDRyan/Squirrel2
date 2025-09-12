@@ -54,7 +54,7 @@ struct CollectionsView: View {
                     .padding()
                 }
             }
-            .background(Color(.systemGray6))
+            .background(Color.groupedBackground)
             .navigationTitle("Collections")
             .navigationBarTitleDisplayMode(.large)
         }
@@ -101,12 +101,9 @@ struct CollectionCard: View {
         }
         .padding()
         .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.systemGray5), lineWidth: 1)
-        )
+        .background(Color.primaryBackground)
         .cornerRadius(12)
+        .elevation1()
     }
 }
 

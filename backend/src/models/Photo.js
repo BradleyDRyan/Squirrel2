@@ -1,4 +1,4 @@
-const { db, admin } = require('../config/firebase');
+const { firestore, admin } = require('../config/firebase');
 
 class Photo {
   constructor(data) {
@@ -66,7 +66,7 @@ class Photo {
   // Create a new photo document
   static async create(photoData) {
     const photo = new Photo(photoData);
-    const docRef = await db.collection('photos').add(photo.toFirestore());
+    const docRef = await firestore.collection('photos').add(photo.toFirestore());
     photo.id = docRef.id;
     
     // Update the document with its ID
@@ -78,7 +78,7 @@ class Photo {
 
   // Find photo by ID
   static async findById(photoId) {
-    const doc = await db.collection('photos').doc(photoId).get();
+    const doc = await firestore.collection('photos').doc(photoId).get();
     if (!doc.exists) {
       return null;
     }
@@ -94,7 +94,7 @@ class Photo {
 
   // Find photos by user
   static async findByUserId(userId, limit = 100) {
-    const snapshot = await db.collection('photos')
+    const snapshot = await firestore.collection('photos')
       .where('userId', '==', userId)
       .orderBy('createdAt', 'desc')
       .limit(limit)
@@ -132,7 +132,7 @@ class Photo {
     
     this.updatedAt = new Date();
     
-    await db.collection('photos').doc(this.id).update({
+    await firestore.collection('photos').doc(this.id).update({
       urls: this.urls,
       storagePaths: this.storagePaths,
       updatedAt: admin.firestore.Timestamp.fromDate(this.updatedAt)
@@ -162,7 +162,7 @@ class Photo {
     await Promise.all(deletePromises);
     
     // Delete from Firestore
-    await db.collection('photos').doc(this.id).delete();
+    await firestore.collection('photos').doc(this.id).delete();
     console.log('✅ [Photo] Deleted from database:', this.id);
   }
 

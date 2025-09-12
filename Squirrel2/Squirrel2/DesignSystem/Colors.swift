@@ -15,6 +15,8 @@ extension Color {
     static let squirrelWarmGray = Color(red: 0.733, green: 0.700, blue: 0.667) // Warm gray
     
     // Background colors
+    static let primaryBackground = Color.white // Primary white background (#FFF)
+    static let groupedBackground = Color(hex: "F9F9F8") // Light gray grouped background
     static let squirrelBackground = Color(hex: "FFFBF5") // Warm white
     static let squirrelWarmBackground = Color(hex: "FFFBF5") // Warm white (alias for VoiceModeView)
     static let squirrelSurfaceBackground = Color(hex: "F2EBDB") // Warm gray surface
