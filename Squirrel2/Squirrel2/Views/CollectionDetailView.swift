@@ -67,7 +67,11 @@ struct CollectionDetailView: View {
                 } else {
                     VStack(spacing: 12) {
                         ForEach(viewModel.entries) { entry in
-                            EntryCard(entry: entry, collectionColor: collection.color)
+                            if let collectionEntry = viewModel.collectionEntries.first(where: { $0.entryId == entry.id }) {
+                                CollectionEntryCard(entry: entry, collectionEntry: collectionEntry, collectionColor: collection.color)
+                            } else {
+                                CollectionEntryCard(entry: entry, collectionEntry: nil, collectionColor: collection.color)
+                            }
                         }
                     }
                 }
@@ -98,15 +102,25 @@ struct CollectionDetailView: View {
     }
 }
 
-struct EntryCard: View {
+struct CollectionEntryCard: View {
     let entry: Entry
+    let collectionEntry: CollectionEntry?
     let collectionColor: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Display image if this is a photo entry (check type or tags)
+            // Display image if this is a photo entry - check CollectionEntry first, then Entry
+            let imageUrl: String? = {
+                // First try to get imageUrl from CollectionEntry's formattedData
+                if let formattedImageUrl = collectionEntry?.formattedData["imageUrl"] as? String {
+                    return formattedImageUrl
+                }
+                // Fall back to Entry's imageUrl
+                return entry.imageUrl
+            }()
+            
             if (entry.type == .photo || entry.tags.contains("photo")), 
-               let imageUrl = entry.imageUrl, 
+               let imageUrl = imageUrl, 
                let url = URL(string: imageUrl) {
                 AsyncImage(url: url) { image in
                     image

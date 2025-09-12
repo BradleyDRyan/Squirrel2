@@ -167,6 +167,7 @@ class CollectionDetailViewModel: ObservableObject {
                         "attachments": data["attachments"] as? [String] ?? [],
                         "location": data["location"],
                         "weather": data["weather"],
+                        "imageUrl": data["imageUrl"] as? String,
                         "createdAt": (data["createdAt"] as? Timestamp)?.dateValue().ISO8601Format() ?? Date().ISO8601Format(),
                         "updatedAt": (data["updatedAt"] as? Timestamp)?.dateValue().ISO8601Format() ?? Date().ISO8601Format(),
                         "metadata": cleanMetadata
