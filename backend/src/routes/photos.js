@@ -215,29 +215,29 @@ Respond in JSON format:
     });
     console.log('✅ [Photos] Assistant message created:', assistantMessage.id);
     
-    // Only create entry if it's a new conversation
-    let entry = null;
-    if (!conversationId) {
-      console.log('📝 [Photos] Creating entry in collection...');
-      entry = await Entry.create({
-        userId: userId,
-        collectionId: targetCollection.id,
-        conversationId: conversation.id,
-        title: analysis.suggestedTitle || 'Photo',
-        content: analysis.description,
-        type: 'photo',
-        tags: ['photo'],
-        spaceIds: spaceIds,
-        imageUrl: publicUrl, // Store Firebase Storage URL at top level
-        metadata: { 
-          source: 'camera',
-          hasImage: true,
-          storagePath: fileName // Store the path for potential deletion later
-        }
-      });
-      console.log('✅ [Photos] Entry created:', entry.id);
-    } else {
-      console.log('ℹ️ [Photos] Skipping entry creation (adding to existing conversation)');
+    // Always create an entry for photos so they appear in the Photos tab
+    console.log('📝 [Photos] Creating entry in collection...');
+    const entry = await Entry.create({
+      userId: userId,
+      collectionId: targetCollection.id,
+      conversationId: conversation.id,
+      title: analysis.suggestedTitle || 'Photo',
+      content: analysis.description,
+      type: 'photo',
+      tags: ['photo'],
+      spaceIds: spaceIds,
+      imageUrl: publicUrl, // Store Firebase Storage URL at top level
+      metadata: { 
+        source: 'camera',
+        hasImage: true,
+        storagePath: fileName, // Store the path for potential deletion later
+        addedToExistingConversation: !!conversationId // Track if this was added to existing conversation
+      }
+    });
+    console.log('✅ [Photos] Entry created:', entry.id);
+    
+    if (conversationId) {
+      console.log('ℹ️ [Photos] Photo added to existing conversation and created entry for Photos tab');
     }
     
     // Update collection stats
@@ -248,12 +248,12 @@ Respond in JSON format:
     const responseData = {
       success: true,
       conversationId: conversation.id,
-      entryId: entry ? entry.id : null,
+      entryId: entry.id, // Now always has an entry
       collectionId: targetCollection.id,
       collectionName: targetCollection.name,
       description: analysis.description,
       message: conversationId 
-        ? `Photo added to conversation` 
+        ? `Photo added to conversation and Photos tab` 
         : `Photo saved to "${targetCollection.name}"`
     };
     
@@ -262,7 +262,8 @@ Respond in JSON format:
     console.log('  📸 Photo URL:', publicUrl);
     console.log('  📁 Collection:', targetCollection.name);
     console.log('  💬 Conversation:', conversation.id);
-    console.log('  📝 Entry:', entry?.id || 'none (existing conversation)');
+    console.log('  📝 Entry:', entry.id); // Always has an entry now
+    console.log('  📱 Shows in Photos tab: Yes');
     console.log('============================================');
     
     res.json(responseData);
