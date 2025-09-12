@@ -62,6 +62,7 @@ struct UnifiedChatView: View {
                             dismiss()
                         },
                         onCameraActivate: {
+                            print("📸 [Photo] Camera button pressed - activating camera mode")
                             showingCameraMode = true
                         }
                     )
@@ -444,6 +445,7 @@ struct UnifiedChatView: View {
         HStack(spacing: 50) {
             // Cancel button
             Button(action: {
+                print("❌ [Photo] Cancel button pressed - exiting camera mode")
                 showingCameraMode = false
                 capturedImage = nil
             }) {
@@ -459,6 +461,7 @@ struct UnifiedChatView: View {
             
             // Capture button
             Button(action: {
+                print("📸 [Photo] Capture button pressed - taking photo")
                 // Trigger photo capture via binding
                 NotificationCenter.default.post(name: NSNotification.Name("CapturePhoto"), object: nil)
             }) {
@@ -482,23 +485,34 @@ struct UnifiedChatView: View {
     }
     
     private func processPhoto(_ image: UIImage) async {
-        guard !isProcessingPhoto else { return }
+        guard !isProcessingPhoto else {
+            print("⚠️ [Photo] Already processing a photo, skipping")
+            return
+        }
+        
+        print("🔄 [Photo] Starting photo processing...")
+        
         guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            print("Failed to convert image to data")
+            print("❌ [Photo] Failed to convert image to JPEG data")
             capturedImage = nil
             return
         }
+        
+        print("✅ [Photo] Image converted to JPEG, size: \(imageData.count / 1024)KB")
         
         guard let user = firebaseManager.currentUser else {
-            print("No authenticated user")
+            print("❌ [Photo] No authenticated user found")
             capturedImage = nil
             return
         }
         
+        print("👤 [Photo] User authenticated: \(user.uid)")
         isProcessingPhoto = true
         
         do {
+            print("🔑 [Photo] Getting auth token...")
             let token = try await user.getIDToken()
+            print("✅ [Photo] Auth token obtained")
             
             // Create multipart form data
             let boundary = UUID().uuidString
@@ -506,10 +520,13 @@ struct UnifiedChatView: View {
             
             // Add conversation ID if we have one
             if let conversationId = conversation?.id {
+                print("💬 [Photo] Adding to existing conversation: \(conversationId)")
                 body.append("--\(boundary)\r\n".data(using: .utf8)!)
                 body.append("Content-Disposition: form-data; name=\"conversationId\"\r\n\r\n".data(using: .utf8)!)
                 body.append("\(conversationId)".data(using: .utf8)!)
                 body.append("\r\n".data(using: .utf8)!)
+            } else {
+                print("🆕 [Photo] Will create new conversation for photo")
             }
             
             // Add image data
@@ -521,29 +538,50 @@ struct UnifiedChatView: View {
             body.append("--\(boundary)--\r\n".data(using: .utf8)!)
             
             // Create request
-            guard let url = URL(string: "\(AppConfig.apiBaseURL)/photos/process") else { return }
+            guard let url = URL(string: "\(AppConfig.apiBaseURL)/photos/process") else {
+                print("❌ [Photo] Invalid API URL")
+                return
+            }
+            
+            print("📤 [Photo] Uploading to: \(url.absoluteString)")
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             request.httpBody = body
             
+            print("⏳ [Photo] Sending photo to backend (\(body.count / 1024)KB)...")
             // Send request
             let (data, response) = try await URLSession.shared.data(for: request)
             
             if let httpResponse = response as? HTTPURLResponse {
+                print("📥 [Photo] Received response: HTTP \(httpResponse.statusCode)")
+                
                 if httpResponse.statusCode == 200 {
                     if let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let success = responseDict["success"] as? Bool,
                        success {
-                        print("✅ Photo processed successfully")
+                        
+                        // Log success details
+                        print("✅ [Photo] Photo processed successfully!")
+                        if let collectionName = responseDict["collectionName"] as? String {
+                            print("📁 [Photo] Saved to collection: \(collectionName)")
+                        }
+                        if let description = responseDict["description"] as? String {
+                            print("📝 [Photo] AI description: \(description)")
+                        }
+                        if let message = responseDict["message"] as? String {
+                            print("💬 [Photo] Status: \(message)")
+                        }
                         
                         // If this created a new conversation, update our local reference
                         if conversation == nil,
                            let newConversationId = responseDict["conversationId"] as? String {
-                            // The conversation will be loaded via the Firestore listener
-                            print("New conversation created: \(newConversationId)")
+                            print("🆕 [Photo] New conversation created: \(newConversationId)")
                         }
+                        
+                        print("🎉 [Photo] Photo saved to Firebase Storage and processed")
+                        print("🔄 [Photo] Closing camera mode and returning to voice mode")
                         
                         // Close camera mode and return to voice mode
                         await MainActor.run {
@@ -552,16 +590,19 @@ struct UnifiedChatView: View {
                             isProcessingPhoto = false
                         }
                     } else {
-                        print("Photo processing failed")
+                        print("❌ [Photo] Processing failed - success flag false or missing")
+                        if let responseDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            print("❌ [Photo] Response data: \(responseDict)")
+                        }
                         await MainActor.run {
                             capturedImage = nil
                             isProcessingPhoto = false
                         }
                     }
                 } else {
-                    print("Error processing photo: HTTP \(httpResponse.statusCode)")
+                    print("❌ [Photo] Error processing photo: HTTP \(httpResponse.statusCode)")
                     if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("Error details:", errorData)
+                        print("❌ [Photo] Error details: \(errorData)")
                     }
                     await MainActor.run {
                         capturedImage = nil
@@ -570,7 +611,8 @@ struct UnifiedChatView: View {
                 }
             }
         } catch {
-            print("Error uploading photo: \(error)")
+            print("❌ [Photo] Error uploading photo: \(error.localizedDescription)")
+            print("❌ [Photo] Error details: \(error)")
             await MainActor.run {
                 capturedImage = nil
                 isProcessingPhoto = false
