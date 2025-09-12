@@ -38,8 +38,8 @@ struct CollectionsView: View {
                     .padding(.top, 100)
                 } else {
                     LazyVGrid(columns: [
-                        GridItem(.flexible()),
-                        GridItem(.flexible())
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16)
                     ], spacing: 16) {
                         ForEach(viewModel.collections) { collection in
                             NavigationLink(destination: CollectionDetailView(collection: collection)
@@ -52,7 +52,7 @@ struct CollectionsView: View {
                             .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding()
+                    .padding(20)
                 }
             }
             .background(Color.groupedBackground)
