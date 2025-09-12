@@ -75,8 +75,9 @@ struct CollectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(collection.icon)
-                    .font(.system(size: 28))
+                Image(systemName: collection.icon)
+                    .font(.system(size: 24))
+                    .foregroundColor(.squirrelPrimary)
                 
                 Spacer()
                 

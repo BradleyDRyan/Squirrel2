@@ -34,8 +34,9 @@ struct CollectionSettingsView: View {
                     HStack {
                         Text("Icon")
                         Spacer()
-                        Text(collection.icon)
+                        Image(systemName: collection.icon)
                             .font(.title2)
+                            .foregroundColor(.squirrelPrimary)
                     }
                     
                     HStack {

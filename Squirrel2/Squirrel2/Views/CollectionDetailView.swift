@@ -23,8 +23,9 @@ struct CollectionDetailView: View {
                 // Collection Header
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text(collection.icon)
-                            .font(.system(size: 48))
+                        Image(systemName: collection.icon)
+                            .font(.system(size: 40))
+                            .foregroundColor(.squirrelPrimary)
                         
                         Spacer()
                         
