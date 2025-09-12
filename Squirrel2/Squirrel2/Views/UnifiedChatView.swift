@@ -37,6 +37,10 @@ struct UnifiedChatView: View {
                         },
                         onDismiss: {
                             dismiss()
+                        },
+                        onCameraActivate: {
+                            // Camera not supported in UnifiedChatView yet
+                            // TODO: Add camera support if needed
                         }
                     )
                     .transition(.opacity)
