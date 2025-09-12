@@ -13,6 +13,7 @@ struct MainTabView: View {
     @State private var showingCameraMode = false
     @State private var isShowingCollectionDetail = false
     @State private var tabBarOffset: CGFloat = 0
+    @State private var dismissProgress: CGFloat = 0
     
     var body: some View {
         ZStack {
@@ -24,7 +25,7 @@ struct MainTabView: View {
                 case 1:
                     PhotosView()
                 case 2:
-                    CollectionsView(isShowingDetail: $isShowingCollectionDetail)
+                    CollectionsView(isShowingDetail: $isShowingCollectionDetail, dismissProgress: $dismissProgress)
                 default:
                     EmptyView()
                 }
@@ -54,7 +55,7 @@ struct MainTabView: View {
                         }
                     }
                     .padding(.trailing, 20)
-                    .offset(y: tabBarOffset - 60) // Move with tab bar
+                    .offset(y: tabBarOffset - 100) // Move with tab bar (adjusted for padding)
                 }
                 
                 // Custom tab bar
@@ -64,8 +65,22 @@ struct MainTabView: View {
             .ignoresSafeArea(edges: .bottom)
         }
         .onChange(of: isShowingCollectionDetail) { _, showing in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                tabBarOffset = showing ? 100 : 0
+            if showing {
+                // Animate out when going to detail
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    tabBarOffset = 120
+                }
+            } else {
+                // Instantly reset when detail is fully dismissed
+                tabBarOffset = 0
+            }
+        }
+        .onChange(of: dismissProgress) { _, progress in
+            // Modulate tab bar position based on dismiss gesture progress
+            // progress: 0 = detail view fully shown, 1 = detail view dismissed
+            if dismissProgress > 0 {
+                // Start bringing tab bar back as user swipes down
+                tabBarOffset = modulate(progress, from: [0, 1], to: [120, 0])
             }
         }
         .sheet(isPresented: $showingChat) {

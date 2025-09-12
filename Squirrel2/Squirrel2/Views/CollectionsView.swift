@@ -12,6 +12,7 @@ struct CollectionsView: View {
     @State private var selectedCollection: Collection?
     @Namespace private var namespace
     @Binding var isShowingDetail: Bool
+    @State private var navigationProgress: CGFloat = 0
     
     var body: some View {
         NavigationStack {
