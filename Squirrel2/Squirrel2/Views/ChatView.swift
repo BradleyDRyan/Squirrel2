@@ -62,6 +62,9 @@ struct ChatView: View {
                             },
                             onDismiss: {
                                 dismiss()
+                            },
+                            onCameraActivate: {
+                                isCameraActive = true
                             }
                         )
                         .transition(.opacity)

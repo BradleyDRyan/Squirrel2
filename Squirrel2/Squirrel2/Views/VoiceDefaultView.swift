@@ -13,12 +13,12 @@ struct VoiceDefaultView: View {
     @StateObject private var voiceAI = VoiceAIManager.shared
     @State private var isRecording = false
     @State private var showError = false
-    @State private var showingCamera = false
     @State private var showingPhotoPicker = false
     @Binding var conversation: ChatConversation?
     @Binding var messages: [ChatMessage]
     let onSwitchToChat: () -> Void
     let onDismiss: () -> Void
+    let onCameraActivate: () -> Void
     
     var body: some View {
         ZStack {
@@ -72,13 +72,6 @@ struct VoiceDefaultView: View {
                 if !voiceMessages.isEmpty {
                     messages.append(contentsOf: voiceMessages)
                     print("✅ Merged \(voiceMessages.count) voice messages into chat")
-                }
-            }
-        }
-        .sheet(isPresented: $showingCamera) {
-            CameraView { image in
-                Task {
-                    await processPhoto(image)
                 }
             }
         }
@@ -230,7 +223,7 @@ struct VoiceDefaultView: View {
             // Camera button
             HStack(spacing: 40) {
                 Button(action: {
-                    showingCamera = true
+                    onCameraActivate()
                 }) {
                     VStack(spacing: 8) {
                         Image(systemName: "camera.fill")
