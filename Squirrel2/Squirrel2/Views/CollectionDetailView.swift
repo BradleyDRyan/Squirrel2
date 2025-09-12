@@ -104,6 +104,24 @@ struct EntryCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Display image if this is a photo entry
+            if entry.type == .photo, let imageUrl = entry.imageUrl, let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .cornerRadius(8)
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(
+                            ProgressView()
+                        )
+                }
+                .frame(maxHeight: 300)
+            }
+            
             if !entry.title.isEmpty {
                 Text(entry.title)
                     .font(.headline)
