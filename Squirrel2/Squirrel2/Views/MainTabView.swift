@@ -11,32 +11,31 @@ struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showingChat = false
     @State private var showingCameraMode = false
+    @State private var isShowingCollectionDetail = false
+    @State private var tabBarOffset: CGFloat = 0
     
     var body: some View {
         ZStack {
-            TabView(selection: $selectedTab) {
-                TasksTabView()
-                    .tabItem {
-                        Label("Tasks", systemImage: "checklist")
-                    }
-                    .tag(0)
-                
-                PhotosView()
-                    .tabItem {
-                        Label("Photos", systemImage: "photo.fill")
-                    }
-                    .tag(1)
-                
-                CollectionsView()
-                    .tabItem {
-                        Label("Collections", systemImage: "folder.fill")
-                    }
-                    .tag(2)
+            // Main content based on selected tab
+            Group {
+                switch selectedTab {
+                case 0:
+                    TasksTabView()
+                case 1:
+                    PhotosView()
+                case 2:
+                    CollectionsView(isShowingDetail: $isShowingCollectionDetail)
+                default:
+                    EmptyView()
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
-            // Floating + button
+            // Custom tab bar and floating button
             VStack {
                 Spacer()
+                
+                // Floating + button
                 HStack {
                     Spacer()
                     
@@ -54,9 +53,19 @@ struct MainTabView: View {
                                 .foregroundColor(.white)
                         }
                     }
-                    .offset(y: -30) // Position above tab bar
                     .padding(.trailing, 20)
+                    .offset(y: tabBarOffset - 60) // Move with tab bar
                 }
+                
+                // Custom tab bar
+                CustomTabBar(selection: $selectedTab)
+                    .offset(y: tabBarOffset)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .onChange(of: isShowingCollectionDetail) { _, showing in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                tabBarOffset = showing ? 100 : 0
             }
         }
         .sheet(isPresented: $showingChat) {
