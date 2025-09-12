@@ -11,7 +11,6 @@ struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
     @State private var selectedCollection: Collection?
     @Namespace private var namespace
-    @Binding var isShowingDetail: Bool
     
     var body: some View {
         NavigationStack {
@@ -45,16 +44,6 @@ struct CollectionsView: View {
                         ForEach(viewModel.collections) { collection in
                             NavigationLink(destination: CollectionDetailView(collection: collection)
                                 .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
-                                .onAppear {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isShowingDetail = true
-                                    }
-                                }
-                                .onDisappear {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isShowingDetail = false
-                                    }
-                                }
                             ) {
                                 CollectionCard(collection: collection)
                                     .matchedTransitionSource(id: collection.id, in: namespace)

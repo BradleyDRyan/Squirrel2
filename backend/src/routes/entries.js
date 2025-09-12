@@ -311,6 +311,7 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
         
         if (inference && inference.shouldCreateCollection) {
           console.log(`[VOICE-ENTRY] Step 3: Inference suggests collection: ${inference.collectionName}`);
+          console.log(`[VOICE-ENTRY] Confidence: ${inference.confidence || 'N/A'}, Reasoning: ${inference.reasoning || 'N/A'}`);
           
           // Check if collection exists
           let collection = await Collection.findByName(req.user.uid, inference.collectionName);

@@ -229,6 +229,7 @@ Respond in JSON format:
     
     if (inference && inference.shouldCreateCollection) {
       console.log(`📁 [Photos] Inference suggests collection: ${inference.collectionName}`);
+      console.log(`🎯 [Photos] Confidence: ${inference.confidence || 'N/A'}, Reasoning: ${inference.reasoning || 'N/A'}`);
       
       // Check if collection exists
       targetCollection = await Collection.findByName(userId, inference.collectionName);

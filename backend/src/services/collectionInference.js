@@ -40,10 +40,19 @@ async function inferCollectionFromContent(content, existingCollections = [], col
     const prompt = `Content: "${content}"
 ${existingCollectionsContext}
 
+IMPORTANT RULES:
+1. Only use an existing collection if you're 80%+ confident it's a perfect match
+2. Create a new collection if the content is clearly different in nature
+3. Harry Potter book rating → "Book Reviews" (NOT "Movie Reviews")
+4. Recipe for pancakes → "Recipes" (NOT "Food" or "Cooking Tips")
+5. Workout routine → "Workouts" (NOT "Health" or "Fitness Tips")
+
 Return JSON:
 {
   "collectionName": "collection name",
   "shouldCreateCollection": true/false,
+  "confidence": 0.0-1.0,
+  "reasoning": "brief explanation",
   "extractedData": {"key": "value"},
   "entryFormat": [{"key": "field", "type": "text|number|date", "label": "Field Name"}] // only if creating new
 }`;
@@ -51,7 +60,16 @@ Return JSON:
     const messages = [
       {
         role: 'system',
-        content: 'Quickly categorize content into collections. Be decisive. Return only JSON.'
+        content: `You categorize content into collections with strict matching criteria.
+
+CRITICAL: Create new collections when content is distinctly different:
+- Book reviews ≠ Movie reviews
+- Recipes ≠ Restaurant reviews  
+- Product ratings ≠ Service reviews
+- Workouts ≠ Health tips
+
+Only match to existing collections with 80%+ confidence. When in doubt, create new.
+Return only valid JSON.`
       },
       {
         role: 'user',
