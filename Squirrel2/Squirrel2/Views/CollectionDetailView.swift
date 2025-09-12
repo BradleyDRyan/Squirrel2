@@ -78,32 +78,19 @@ struct CollectionDetailView: View {
             }
             .padding()
         }
-        .offset(dragOffset)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    // Only track downward drags
-                    if value.translation.height > 0 {
-                        dragOffset = value.translation
-                        // Calculate progress from 0 to 1 based on drag distance
-                        let progress = min(1, max(0, value.translation.height / 400))
-                        dismissProgress?.wrappedValue = progress
-                        print("🔴 DetailView drag - height: \(value.translation.height), progress: \(progress)")
-                    }
-                }
-                .onEnded { value in
-                    print("🔴 DetailView drag ended - height: \(value.translation.height)")
-                    if value.translation.height > 200 {
-                        // Dismiss if dragged far enough
-                        dismiss()
-                    } else {
-                        // Snap back
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            dragOffset = .zero
-                            dismissProgress?.wrappedValue = 0
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onChange(of: geometry.frame(in: .global).minY) { _, newValue in
+                        // Track the view position during swipe-to-dismiss
+                        let screenHeight = UIScreen.main.bounds.height
+                        let progress = max(0, min(1, newValue / screenHeight))
+                        if progress > 0 {
+                            dismissProgress?.wrappedValue = progress
+                            print("🔴 DetailView position tracking - Y: \(newValue), progress: \(progress)")
                         }
                     }
-                }
+            }
         )
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.large)
