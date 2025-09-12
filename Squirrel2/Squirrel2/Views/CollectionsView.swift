@@ -61,8 +61,10 @@ struct CollectionsView: View {
                                             // Track the drag progress for interactive dismissal
                                             let progress = max(0, value.translation.height / 300)
                                             dismissProgress = min(1, progress)
+                                            print("🔵 Drag changed - Translation: \(value.translation.height), Progress: \(dismissProgress)")
                                         }
                                         .onEnded { value in
+                                            print("🔵 Drag ended - Translation: \(value.translation.height)")
                                             // Reset on gesture end
                                             if value.translation.height < 150 {
                                                 // Snap back if not dragged enough

@@ -78,9 +78,12 @@ struct MainTabView: View {
         .onChange(of: dismissProgress) { _, progress in
             // Modulate tab bar position based on dismiss gesture progress
             // progress: 0 = detail view fully shown, 1 = detail view dismissed
+            print("🟢 MainTabView - dismissProgress changed: \(progress), tabBarOffset: \(tabBarOffset)")
             if dismissProgress > 0 {
                 // Start bringing tab bar back as user swipes down
-                tabBarOffset = modulate(progress, from: [0, 1], to: [120, 0])
+                let newOffset = modulate(progress, from: [0, 1], to: [120, 0])
+                tabBarOffset = newOffset
+                print("🟢 MainTabView - Modulated offset: \(newOffset)")
             }
         }
         .sheet(isPresented: $showingChat) {
