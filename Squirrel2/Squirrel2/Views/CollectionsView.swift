@@ -45,35 +45,21 @@ struct CollectionsView: View {
                         GridItem(.flexible(), spacing: 16)
                     ], spacing: 16) {
                         ForEach(viewModel.collections) { collection in
-                            NavigationLink(destination: CollectionDetailView(collection: collection)
+                            NavigationLink(destination: CollectionDetailView(
+                                collection: collection,
+                                dismissProgress: $dismissProgress
+                            )
                                 .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
                                 .onAppear {
                                     isShowingDetail = true
                                     dismissProgress = 0
+                                    print("🟡 CollectionDetailView appeared")
                                 }
                                 .onDisappear {
                                     isShowingDetail = false
                                     dismissProgress = 0
+                                    print("🟡 CollectionDetailView disappeared")
                                 }
-                                .gesture(
-                                    DragGesture()
-                                        .onChanged { value in
-                                            // Track the drag progress for interactive dismissal
-                                            let progress = max(0, value.translation.height / 300)
-                                            dismissProgress = min(1, progress)
-                                            print("🔵 Drag changed - Translation: \(value.translation.height), Progress: \(dismissProgress)")
-                                        }
-                                        .onEnded { value in
-                                            print("🔵 Drag ended - Translation: \(value.translation.height)")
-                                            // Reset on gesture end
-                                            if value.translation.height < 150 {
-                                                // Snap back if not dragged enough
-                                                withAnimation(.spring(response: 0.3)) {
-                                                    dismissProgress = 0
-                                                }
-                                            }
-                                        }
-                                )
                             ) {
                                 CollectionCard(collection: collection)
                                     .matchedTransitionSource(id: collection.id, in: namespace)

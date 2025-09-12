@@ -11,10 +11,14 @@ struct CollectionDetailView: View {
     @StateObject private var viewModel: CollectionDetailViewModel
     @EnvironmentObject var firebaseManager: FirebaseManager
     @State private var showingSettings = false
+    var dismissProgress: Binding<CGFloat>?
+    @State private var dragOffset: CGSize = .zero
+    @Environment(\.dismiss) private var dismiss
     
-    init(collection: Collection) {
+    init(collection: Collection, dismissProgress: Binding<CGFloat>? = nil) {
         self.collection = collection
         self._viewModel = StateObject(wrappedValue: CollectionDetailViewModel(collectionId: collection.id))
+        self.dismissProgress = dismissProgress
     }
     
     var body: some View {
@@ -74,6 +78,33 @@ struct CollectionDetailView: View {
             }
             .padding()
         }
+        .offset(dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Only track downward drags
+                    if value.translation.height > 0 {
+                        dragOffset = value.translation
+                        // Calculate progress from 0 to 1 based on drag distance
+                        let progress = min(1, max(0, value.translation.height / 400))
+                        dismissProgress?.wrappedValue = progress
+                        print("🔴 DetailView drag - height: \(value.translation.height), progress: \(progress)")
+                    }
+                }
+                .onEnded { value in
+                    print("🔴 DetailView drag ended - height: \(value.translation.height)")
+                    if value.translation.height > 200 {
+                        // Dismiss if dragged far enough
+                        dismiss()
+                    } else {
+                        // Snap back
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            dragOffset = .zero
+                            dismissProgress?.wrappedValue = 0
+                        }
+                    }
+                }
+        )
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
