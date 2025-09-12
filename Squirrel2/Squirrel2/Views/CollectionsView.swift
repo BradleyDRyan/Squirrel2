@@ -12,7 +12,8 @@ struct CollectionsView: View {
     @State private var selectedCollection: Collection?
     @Namespace private var namespace
     @Binding var isShowingDetail: Bool
-    @State private var navigationProgress: CGFloat = 0
+    @Binding var dismissProgress: CGFloat
+    @State private var dragOffset: CGFloat = 0
     
     var body: some View {
         NavigationStack {
@@ -48,10 +49,29 @@ struct CollectionsView: View {
                                 .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
                                 .onAppear {
                                     isShowingDetail = true
+                                    dismissProgress = 0
                                 }
                                 .onDisappear {
                                     isShowingDetail = false
+                                    dismissProgress = 0
                                 }
+                                .gesture(
+                                    DragGesture()
+                                        .onChanged { value in
+                                            // Track the drag progress for interactive dismissal
+                                            let progress = max(0, value.translation.height / 300)
+                                            dismissProgress = min(1, progress)
+                                        }
+                                        .onEnded { value in
+                                            // Reset on gesture end
+                                            if value.translation.height < 150 {
+                                                // Snap back if not dragged enough
+                                                withAnimation(.spring(response: 0.3)) {
+                                                    dismissProgress = 0
+                                                }
+                                            }
+                                        }
+                                )
                             ) {
                                 CollectionCard(collection: collection)
                                     .matchedTransitionSource(id: collection.id, in: namespace)
