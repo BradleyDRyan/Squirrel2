@@ -11,6 +11,7 @@ struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showingChat = false
     @State private var showingCameraMode = false
+    @State private var isShowingDetail = false
     
     var body: some View {
         ZStack {
@@ -22,7 +23,7 @@ struct MainTabView: View {
                 case 1:
                     PhotosView()
                 case 2:
-                    CollectionsView()
+                    CollectionsView(isShowingDetail: $isShowingDetail)
                 default:
                     EmptyView()
                 }
@@ -55,8 +56,11 @@ struct MainTabView: View {
                     .offset(y: -100) // Position above tab bar
                 }
                 
-                // Custom tab bar
-                CustomTabBar(selection: $selectedTab)
+                // Custom tab bar - hide when showing detail
+                if !isShowingDetail {
+                    CustomTabBar(selection: $selectedTab)
+                        .transition(.move(edge: .bottom))
+                }
             }
             .ignoresSafeArea(edges: .bottom)
         }

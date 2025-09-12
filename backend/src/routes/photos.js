@@ -117,31 +117,17 @@ router.post('/process', upload.single('photo'), async (req, res) => {
     const base64Image = req.file.buffer.toString('base64');
     const imageUrl = `data:${req.file.mimetype};base64,${base64Image}`;
     
-    // Get user's collections for context
-    const collections = await Collection.findByUserId(userId);
-    const collectionNames = collections.map(c => c.name).join(', ') || 'no collections yet';
-    
     // Use OpenAI Vision API to analyze the image
     console.log('🤖 [Photos] Starting AI analysis with GPT-4 Vision...');
-    console.log('🔍 [Photos] Available collections for user:', collectionNames || 'none');
     const visionResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: `You are analyzing a photo to determine:
-1. What the photo contains (brief description)
-2. Which collection it should be saved to
-
-Available collections: ${collectionNames}
-
-If none of the existing collections fit well, suggest creating a new collection with an appropriate name.
-
+          content: `You are analyzing a photo. Provide a brief, natural description of what you see.
 Respond in JSON format:
 {
   "description": "brief description of what's in the photo",
-  "collectionName": "name of collection to save to",
-  "createNewCollection": true/false,
   "suggestedTitle": "optional title for the entry"
 }`
         },
@@ -150,7 +136,7 @@ Respond in JSON format:
           content: [
             {
               type: 'text',
-              text: 'What is in this photo and which collection should it go to?'
+              text: 'What is in this photo?'
             },
             {
               type: 'image_url',
@@ -176,41 +162,151 @@ Respond in JSON format:
     }
     const analysis = JSON.parse(content);
     // Ensure all fields have values (no undefined)
-    analysis.description = analysis.description || '';
-    analysis.collectionName = analysis.collectionName || 'General';
+    analysis.description = analysis.description || 'Photo';
     analysis.suggestedTitle = analysis.suggestedTitle || null;
-    analysis.createNewCollection = analysis.createNewCollection || false;
     console.log('📊 [Photos] AI Analysis:');
     console.log('  📝 Description:', analysis.description);
-    console.log('  📁 Collection:', analysis.collectionName);
-    console.log('  🆕 Create new collection:', analysis.createNewCollection);
     console.log('  🏷️ Suggested title:', analysis.suggestedTitle);
     
     // Update Photo with AI analysis
     photo.analysis = {
       description: analysis.description || '',
-      collectionName: analysis.collectionName || 'General',
+      collectionName: '', // Will be determined by inference
       suggestedTitle: analysis.suggestedTitle || null,
       tags: ['photo']
     };
     await photo.updateSizes({});  // This updates the analysis in the database
     console.log('✅ [Photos] Photo analysis saved');
     
-    // Find or create the collection
-    let targetCollection;
-    if (analysis.createNewCollection || !collections.find(c => c.name === analysis.collectionName)) {
-      console.log('🆕 [Photos] Creating new collection:', analysis.collectionName);
-      targetCollection = await Collection.findOrCreateByName(userId, analysis.collectionName);
-      console.log('✅ [Photos] Collection created with ID:', targetCollection.id);
-    } else {
-      targetCollection = collections.find(c => c.name === analysis.collectionName);
-      console.log('📁 [Photos] Using existing collection:', targetCollection.name, 'ID:', targetCollection.id);
-    }
-    
     // Get or create default space
     const defaultSpace = await Space.findDefaultSpace(userId) || 
                          await Space.createDefaultSpace(userId);
     const spaceIds = defaultSpace ? [defaultSpace.id] : [];
+    
+    // First, create the Entry with photo description
+    console.log('📝 [Photos] Creating entry with photo description...');
+    const entry = await Entry.create({
+      userId: userId,
+      title: analysis.suggestedTitle || 'Photo',
+      content: analysis.description,
+      type: 'photo',
+      tags: ['photo'],
+      spaceIds: spaceIds,
+      photoId: photo.id,  // Reference to Photo object
+      imageUrl: publicUrl, // Keep for backward compatibility
+      metadata: { 
+        source: 'camera',
+        hasImage: true,
+        photoId: photo.id,
+        storagePath: fileName,
+        addedToExistingConversation: !!conversationId
+      }
+    });
+    console.log('✅ [Photos] Entry created:', entry.id);
+    
+    // Now run the standard inference to determine collection
+    console.log('🤔 [Photos] Running collection inference...');
+    const { inferCollectionFromContent, generateCollectionDetails } = require('../services/collectionInference');
+    
+    // Get existing collections for this user
+    const existingCollections = await Collection.findByUserId(userId);
+    const collectionNames = existingCollections.map(c => c.name);
+    const collectionInstructions = {};
+    existingCollections.forEach(c => {
+      collectionInstructions[c.name] = c.instructions || '';
+    });
+    
+    console.log('🔍 [Photos] Available collections:', collectionNames.join(', ') || 'none');
+    
+    // Run inference on the photo description
+    const inference = await inferCollectionFromContent(
+      analysis.description,
+      collectionNames,
+      collectionInstructions
+    );
+    
+    let targetCollection = null;
+    
+    if (inference && inference.shouldCreateCollection) {
+      console.log(`📁 [Photos] Inference suggests collection: ${inference.collectionName}`);
+      
+      // Check if collection exists
+      targetCollection = await Collection.findByName(userId, inference.collectionName);
+      
+      if (!targetCollection) {
+        console.log(`🆕 [Photos] Creating new collection: ${inference.collectionName}`);
+        
+        // Generate detailed collection structure
+        const details = await generateCollectionDetails(
+          inference.collectionName,
+          inference.description,
+          analysis.description
+        );
+        
+        targetCollection = await Collection.create({
+          userId: userId,
+          name: details.name,
+          instructions: details.instructions || `Add entries related to ${details.name}`,
+          icon: details.icon || '📷',
+          color: details.color || '#6366f1',
+          entryFormat: inference.entryFormat,
+          metadata: { 
+            source: 'photo_inference',
+            firstEntry: entry.id,
+            inferredAt: new Date()
+          }
+        });
+        
+        console.log(`✅ [Photos] Created collection ${targetCollection.id}`);
+      } else {
+        console.log(`📁 [Photos] Using existing collection: ${targetCollection.name}`);
+      }
+      
+      // Create CollectionEntry with formatted data
+      if (inference.extractedData) {
+        console.log('🔗 [Photos] Creating CollectionEntry junction record...');
+        await CollectionEntry.create({
+          userId: userId,
+          collectionId: targetCollection.id,
+          entryId: entry.id,
+          formattedData: {
+            ...inference.extractedData,
+            imageUrl: publicUrl,
+            photoId: photo.id,
+            title: analysis.suggestedTitle || 'Photo',
+            description: analysis.description
+          },
+          metadata: {
+            source: 'photo_inference',
+            inferredAt: new Date()
+          }
+        });
+        console.log('✅ [Photos] CollectionEntry created');
+      }
+    } else {
+      console.log('ℹ️ [Photos] No collection pattern detected, using default');
+      // Find or create a default Photos collection
+      targetCollection = await Collection.findOrCreateByName(userId, 'Photos', 'Your photo memories');
+      
+      // Create CollectionEntry
+      console.log('🔗 [Photos] Creating CollectionEntry for default Photos collection...');
+      await CollectionEntry.create({
+        userId: userId,
+        collectionId: targetCollection.id,
+        entryId: entry.id,
+        formattedData: {
+          imageUrl: publicUrl,
+          photoId: photo.id,
+          title: analysis.suggestedTitle || 'Photo',
+          description: analysis.description
+        },
+        metadata: {
+          source: 'photo',
+          autoProcessed: true
+        }
+      });
+      console.log('✅ [Photos] CollectionEntry created for default collection');
+    }
     
     let conversation;
     
@@ -277,47 +373,10 @@ Respond in JSON format:
     });
     console.log('✅ [Photos] Assistant message created:', assistantMessage.id);
     
-    // Always create an entry for photos so they appear in the Photos tab
-    console.log('📝 [Photos] Creating entry in collection...');
-    const entry = await Entry.create({
-      userId: userId,
-      collectionId: targetCollection.id,
-      conversationId: conversation.id,
-      title: analysis.suggestedTitle || 'Photo',
-      content: analysis.description,
-      type: 'photo',
-      tags: ['photo'],
-      spaceIds: spaceIds,
-      photoId: photo.id,  // Reference to Photo object
-      imageUrl: publicUrl, // Keep for backward compatibility
-      metadata: { 
-        source: 'camera',
-        hasImage: true,
-        photoId: photo.id,
-        storagePath: fileName,
-        addedToExistingConversation: !!conversationId
-      }
-    });
-    console.log('✅ [Photos] Entry created:', entry.id);
-    
-    // Create CollectionEntry junction record to link Entry to Collection
-    console.log('🔗 [Photos] Creating CollectionEntry junction record...');
-    const collectionEntry = await CollectionEntry.create({
-      entryId: entry.id,
-      collectionId: targetCollection.id,
-      userId: userId,
-      formattedData: {
-        title: entry.title,
-        description: analysis.description,
-        imageUrl: publicUrl,
-        photoId: photo.id
-      },
-      metadata: {
-        source: 'photo',
-        autoProcessed: true
-      }
-    });
-    console.log('✅ [Photos] CollectionEntry created:', collectionEntry.id);
+    // Update entry with conversation ID now that it exists
+    entry.conversationId = conversation.id;
+    await entry.save();
+    console.log('✅ [Photos] Entry updated with conversation ID');
     
     if (conversationId) {
       console.log('ℹ️ [Photos] Photo added to existing conversation and created entry for Photos tab');
