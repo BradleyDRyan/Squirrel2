@@ -44,6 +44,7 @@ struct CollectionsView: View {
                         ForEach(viewModel.collections) { collection in
                             NavigationLink(destination: CollectionDetailView(collection: collection)
                                 .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
+                                .toolbar(.hidden, for: .tabBar)
                             ) {
                                 CollectionCard(collection: collection)
                                     .matchedTransitionSource(id: collection.id, in: namespace)

@@ -6,7 +6,7 @@ class Collection {
     this.userId = data.userId || null;
     this.name = data.name || '';
     this.instructions = data.instructions || '';  // AI guidance for what belongs in this collection
-    this.icon = data.icon || '📝';
+    this.icon = data.icon || 'doc.text';
     this.color = data.color || '#6366f1';
     this.entryFormat = data.entryFormat || null;  // Defines field structure for entries
     this.template = data.template || {
@@ -140,23 +140,23 @@ class Collection {
   }
 
   static getDefaultIcon(name) {
-    // Return contextual emoji based on collection name
+    // Return contextual SF Symbol based on collection name
     const nameLower = name.toLowerCase();
     
-    if (nameLower.includes('bak') || nameLower.includes('cook') || nameLower.includes('recipe')) return '🍞';
-    if (nameLower.includes('travel') || nameLower.includes('trip')) return '✈️';
-    if (nameLower.includes('book') || nameLower.includes('read')) return '📚';
-    if (nameLower.includes('movie') || nameLower.includes('film')) return '🎬';
-    if (nameLower.includes('music') || nameLower.includes('song')) return '🎵';
-    if (nameLower.includes('workout') || nameLower.includes('exercise') || nameLower.includes('fitness')) return '💪';
-    if (nameLower.includes('food') || nameLower.includes('restaurant')) return '🍽️';
-    if (nameLower.includes('photo') || nameLower.includes('picture')) return '📷';
-    if (nameLower.includes('idea') || nameLower.includes('thought')) return '💡';
-    if (nameLower.includes('work') || nameLower.includes('project')) return '💼';
-    if (nameLower.includes('garden') || nameLower.includes('plant')) return '🌱';
-    if (nameLower.includes('pet') || nameLower.includes('dog') || nameLower.includes('cat')) return '🐾';
+    if (nameLower.includes('bak') || nameLower.includes('cook') || nameLower.includes('recipe')) return 'fork.knife';
+    if (nameLower.includes('travel') || nameLower.includes('trip')) return 'airplane';
+    if (nameLower.includes('book') || nameLower.includes('read')) return 'book';
+    if (nameLower.includes('movie') || nameLower.includes('film')) return 'film';
+    if (nameLower.includes('music') || nameLower.includes('song')) return 'music.note';
+    if (nameLower.includes('workout') || nameLower.includes('exercise') || nameLower.includes('fitness')) return 'figure.walk';
+    if (nameLower.includes('food') || nameLower.includes('restaurant')) return 'fork.knife';
+    if (nameLower.includes('photo') || nameLower.includes('picture')) return 'camera';
+    if (nameLower.includes('idea') || nameLower.includes('thought')) return 'lightbulb';
+    if (nameLower.includes('work') || nameLower.includes('project')) return 'briefcase';
+    if (nameLower.includes('garden') || nameLower.includes('plant')) return 'leaf';
+    if (nameLower.includes('pet') || nameLower.includes('dog') || nameLower.includes('cat')) return 'pawprint';
     
-    return '📝'; // Default icon
+    return 'doc.text'; // Default icon
   }
 
   async updateStats() {
