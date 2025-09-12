@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
-const { Collection, Entry, Space, Conversation, Message, Photo } = require('../models');
+const { Collection, Entry, Space, Conversation, Message, Photo, CollectionEntry } = require('../models');
 const multer = require('multer');
 const OpenAI = require('openai');
 const { getStorage } = require('firebase-admin/storage');
@@ -299,6 +299,25 @@ Respond in JSON format:
       }
     });
     console.log('✅ [Photos] Entry created:', entry.id);
+    
+    // Create CollectionEntry junction record to link Entry to Collection
+    console.log('🔗 [Photos] Creating CollectionEntry junction record...');
+    const collectionEntry = await CollectionEntry.create({
+      entryId: entry.id,
+      collectionId: targetCollection.id,
+      userId: userId,
+      formattedData: {
+        title: entry.title,
+        description: analysis.description,
+        imageUrl: publicUrl,
+        photoId: photo.id
+      },
+      metadata: {
+        source: 'photo',
+        autoProcessed: true
+      }
+    });
+    console.log('✅ [Photos] CollectionEntry created:', collectionEntry.id);
     
     if (conversationId) {
       console.log('ℹ️ [Photos] Photo added to existing conversation and created entry for Photos tab');
