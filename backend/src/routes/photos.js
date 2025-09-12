@@ -167,7 +167,14 @@ Respond in JSON format:
     });
     
     console.log('✅ [Photos] Vision API responded');
-    const analysis = JSON.parse(visionResponse.choices[0].message.content);
+    
+    // Parse the response, handling markdown-wrapped JSON
+    let content = visionResponse.choices[0].message.content;
+    // Strip markdown code block if present
+    if (content.includes('```json')) {
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    }
+    const analysis = JSON.parse(content);
     console.log('📊 [Photos] AI Analysis:');
     console.log('  📝 Description:', analysis.description);
     console.log('  📁 Collection:', analysis.collectionName);
