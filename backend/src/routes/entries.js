@@ -132,10 +132,9 @@ router.post('/with-inference', async (req, res) => {
             collection = await Collection.create({
               userId: req.user.uid,
               name: details.name,
-              description: details.description,
-              icon: details.icon || '📝',
+              instructions: details.instructions || `Add entries related to ${details.name}`,
+              icon: Collection.getDefaultIcon(details.name),
               color: details.color || '#6366f1',
-              rules: details.rules,
               entryFormat: details.entryFormat,
               metadata: { 
                 source: 'auto_inference',
@@ -327,11 +326,10 @@ router.post('/extract-voice-entry', flexibleAuth, async (req, res) => {
             collection = await Collection.create({
               userId: req.user.uid,
               name: details.name,
-              description: details.description,
-              icon: details.icon || '📝',
+              instructions: details.instructions || `Add entries related to ${details.name}`,
+              icon: Collection.getDefaultIcon(details.name),
               color: details.color || '#6366f1',
-              rules: details.rules,
-              entryFormat: details.entryFormat,
+              entryFormat: inference.entryFormat,
               metadata: { 
                 source: 'voice_inference',
                 firstEntry: entry.id,
@@ -421,10 +419,9 @@ router.post('/:id/infer-collection', flexibleAuth, async (req, res) => {
       collection = await Collection.create({
         userId: req.user.uid,
         name: details.name,
-        description: details.description,
-        icon: details.icon || '📝',
+        instructions: details.instructions || `Add entries related to ${details.name}`,
+        icon: Collection.getDefaultIcon(details.name),
         color: details.color || '#6366f1',
-        rules: details.rules,
         entryFormat: details.entryFormat,
         metadata: { 
           source: 'async_inference',

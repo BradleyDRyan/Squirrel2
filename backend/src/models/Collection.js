@@ -143,18 +143,72 @@ class Collection {
     // Return contextual SF Symbol based on collection name
     const nameLower = name.toLowerCase();
     
-    if (nameLower.includes('bak') || nameLower.includes('cook') || nameLower.includes('recipe')) return 'fork.knife';
-    if (nameLower.includes('travel') || nameLower.includes('trip')) return 'airplane';
+    // Media & Entertainment
     if (nameLower.includes('book') || nameLower.includes('read')) return 'book';
     if (nameLower.includes('movie') || nameLower.includes('film')) return 'film';
-    if (nameLower.includes('music') || nameLower.includes('song')) return 'music.note';
+    if (nameLower.includes('tv') || nameLower.includes('show')) return 'tv';
+    if (nameLower.includes('music') || nameLower.includes('song') || nameLower.includes('album')) return 'music.note';
+    if (nameLower.includes('podcast')) return 'mic';
+    if (nameLower.includes('game') || nameLower.includes('gaming')) return 'gamecontroller';
+    
+    // Food & Dining
+    if (nameLower.includes('recipe')) return 'fork.knife';
+    if (nameLower.includes('restaurant') || nameLower.includes('dining')) return 'fork.knife.circle';
+    if (nameLower.includes('cook') || nameLower.includes('bak')) return 'flame';
+    if (nameLower.includes('wine') || nameLower.includes('drink')) return 'wineglass';
+    if (nameLower.includes('coffee')) return 'cup.and.saucer';
+    
+    // Activities & Lifestyle
+    if (nameLower.includes('travel') || nameLower.includes('trip')) return 'airplane';
     if (nameLower.includes('workout') || nameLower.includes('exercise') || nameLower.includes('fitness')) return 'figure.walk';
-    if (nameLower.includes('food') || nameLower.includes('restaurant')) return 'fork.knife';
-    if (nameLower.includes('photo') || nameLower.includes('picture')) return 'camera';
+    if (nameLower.includes('sport')) return 'sportscourt';
+    if (nameLower.includes('yoga') || nameLower.includes('meditation')) return 'figure.mind.and.body';
+    if (nameLower.includes('run')) return 'figure.run';
+    
+    // Shopping & Products
+    if (nameLower.includes('product') || nameLower.includes('review')) return 'star';
+    if (nameLower.includes('shop') || nameLower.includes('buy')) return 'cart';
+    if (nameLower.includes('candle')) return 'flame.circle';
+    if (nameLower.includes('clothes') || nameLower.includes('fashion')) return 'tshirt';
+    
+    // Personal & Life
     if (nameLower.includes('idea') || nameLower.includes('thought')) return 'lightbulb';
-    if (nameLower.includes('work') || nameLower.includes('project')) return 'briefcase';
+    if (nameLower.includes('advice') || nameLower.includes('tip')) return 'quote.bubble';
+    if (nameLower.includes('goal') || nameLower.includes('plan')) return 'target';
+    if (nameLower.includes('dream')) return 'moon.stars';
+    if (nameLower.includes('memory') || nameLower.includes('memories')) return 'heart';
+    
+    // Work & Productivity
+    if (nameLower.includes('work') || nameLower.includes('job')) return 'briefcase';
+    if (nameLower.includes('project')) return 'folder';
+    if (nameLower.includes('meeting')) return 'person.2';
+    if (nameLower.includes('task') || nameLower.includes('todo')) return 'checklist';
+    
+    // Home & Nature
+    if (nameLower.includes('home') || nameLower.includes('house')) return 'house';
     if (nameLower.includes('garden') || nameLower.includes('plant')) return 'leaf';
     if (nameLower.includes('pet') || nameLower.includes('dog') || nameLower.includes('cat')) return 'pawprint';
+    if (nameLower.includes('weather')) return 'cloud.sun';
+    
+    // Media Creation
+    if (nameLower.includes('photo') || nameLower.includes('picture')) return 'camera';
+    if (nameLower.includes('video')) return 'video';
+    if (nameLower.includes('art') || nameLower.includes('draw')) return 'paintbrush';
+    if (nameLower.includes('write') || nameLower.includes('journal')) return 'pencil';
+    
+    // Health & Wellness
+    if (nameLower.includes('health')) return 'heart.circle';
+    if (nameLower.includes('medical') || nameLower.includes('doctor')) return 'stethoscope';
+    if (nameLower.includes('sleep')) return 'bed.double';
+    
+    // Learning & Education
+    if (nameLower.includes('learn') || nameLower.includes('study')) return 'graduationcap';
+    if (nameLower.includes('language')) return 'globe';
+    if (nameLower.includes('math') || nameLower.includes('number')) return 'number';
+    
+    // Finance
+    if (nameLower.includes('money') || nameLower.includes('finance') || nameLower.includes('budget')) return 'dollarsign.circle';
+    if (nameLower.includes('invest')) return 'chart.line.uptrend.xyaxis';
     
     return 'doc.text'; // Default icon
   }

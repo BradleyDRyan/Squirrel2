@@ -248,7 +248,7 @@ Respond in JSON format:
           userId: userId,
           name: details.name,
           instructions: details.instructions || `Add entries related to ${details.name}`,
-          icon: details.icon || '📷',
+          icon: Collection.getDefaultIcon(details.name),
           color: details.color || '#6366f1',
           entryFormat: inference.entryFormat,
           metadata: { 
