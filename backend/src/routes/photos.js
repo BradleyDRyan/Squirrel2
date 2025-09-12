@@ -175,6 +175,11 @@ Respond in JSON format:
       content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     }
     const analysis = JSON.parse(content);
+    // Ensure all fields have values (no undefined)
+    analysis.description = analysis.description || '';
+    analysis.collectionName = analysis.collectionName || 'General';
+    analysis.suggestedTitle = analysis.suggestedTitle || null;
+    analysis.createNewCollection = analysis.createNewCollection || false;
     console.log('📊 [Photos] AI Analysis:');
     console.log('  📝 Description:', analysis.description);
     console.log('  📁 Collection:', analysis.collectionName);
@@ -183,9 +188,9 @@ Respond in JSON format:
     
     // Update Photo with AI analysis
     photo.analysis = {
-      description: analysis.description,
-      collectionName: analysis.collectionName,
-      suggestedTitle: analysis.suggestedTitle,
+      description: analysis.description || '',
+      collectionName: analysis.collectionName || 'General',
+      suggestedTitle: analysis.suggestedTitle || null,
       tags: ['photo']
     };
     await photo.updateSizes({});  // This updates the analysis in the database
@@ -267,7 +272,7 @@ Respond in JSON format:
       metadata: {
         role: 'assistant',
         collectionName: targetCollection.name,
-        suggestedTitle: analysis.suggestedTitle
+        suggestedTitle: analysis.suggestedTitle || null
       }
     });
     console.log('✅ [Photos] Assistant message created:', assistantMessage.id);
