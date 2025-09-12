@@ -20,6 +20,9 @@ struct UnifiedChatView: View {
     @State private var streamingMessageId: String?
     @State private var streamingMessageContent = ""
     @State private var showingChatMode = false
+    @State private var showingCameraMode = false
+    @State private var capturedImage: UIImage?
+    @State private var isProcessingPhoto = false
     @FocusState private var isInputFocused: Bool
     
     private let db = Firestore.firestore()
@@ -27,8 +30,28 @@ struct UnifiedChatView: View {
     var body: some View {
         NavigationView {
             ZStack {
+                // Camera mode overlay (shows behind voice/chat modes)
+                if showingCameraMode {
+                    CameraPreviewView(
+                        capturedImage: $capturedImage,
+                        isCapturing: $isProcessingPhoto,
+                        onError: { errorMessage in
+                            print("Camera error: \(errorMessage)")
+                            showingCameraMode = false
+                        }
+                    )
+                    .ignoresSafeArea()
+                    .overlay(
+                        VStack {
+                            Spacer()
+                            captureControls
+                                .padding(.bottom, 50)
+                        }
+                    )
+                }
+                
                 // Voice mode is default
-                if !showingChatMode {
+                if !showingChatMode && !showingCameraMode {
                     VoiceDefaultView(
                         conversation: $conversation,
                         messages: $messages,
@@ -39,12 +62,11 @@ struct UnifiedChatView: View {
                             dismiss()
                         },
                         onCameraActivate: {
-                            // Camera not supported in UnifiedChatView yet
-                            // TODO: Add camera support if needed
+                            showingCameraMode = true
                         }
                     )
                     .transition(.opacity)
-                } else {
+                } else if showingChatMode && !showingCameraMode {
                     // Chat mode
                     VStack(spacing: 0) {
                         chatContent
@@ -80,6 +102,14 @@ struct UnifiedChatView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showingChatMode)
+        .animation(.easeInOut(duration: 0.3), value: showingCameraMode)
+        .onChange(of: capturedImage) { _, image in
+            if let image = image {
+                Task {
+                    await processPhoto(image)
+                }
+            }
+        }
         .onAppear {
             setupConversation()
             
@@ -405,6 +435,145 @@ struct UnifiedChatView: View {
                         .document(errorMessage.id)
                         .setData(errorData)
                 }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var captureControls: some View {
+        HStack(spacing: 50) {
+            // Cancel button
+            Button(action: {
+                showingCameraMode = false
+                capturedImage = nil
+            }) {
+                Circle()
+                    .fill(Color.black.opacity(0.5))
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        Image(systemName: "xmark")
+                            .foregroundColor(.white)
+                            .font(.system(size: 24))
+                    )
+            }
+            
+            // Capture button
+            Button(action: {
+                // Trigger photo capture via binding
+                NotificationCenter.default.post(name: NSNotification.Name("CapturePhoto"), object: nil)
+            }) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white, lineWidth: 4)
+                        .frame(width: 80, height: 80)
+                    
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 70, height: 70)
+                }
+            }
+            .disabled(isProcessingPhoto)
+            .opacity(isProcessingPhoto ? 0.5 : 1.0)
+            
+            // Spacer for symmetry
+            Color.clear
+                .frame(width: 60, height: 60)
+        }
+    }
+    
+    private func processPhoto(_ image: UIImage) async {
+        guard !isProcessingPhoto else { return }
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            print("Failed to convert image to data")
+            capturedImage = nil
+            return
+        }
+        
+        guard let user = firebaseManager.currentUser else {
+            print("No authenticated user")
+            capturedImage = nil
+            return
+        }
+        
+        isProcessingPhoto = true
+        
+        do {
+            let token = try await user.getIDToken()
+            
+            // Create multipart form data
+            let boundary = UUID().uuidString
+            var body = Data()
+            
+            // Add conversation ID if we have one
+            if let conversationId = conversation?.id {
+                body.append("--\(boundary)\r\n".data(using: .utf8)!)
+                body.append("Content-Disposition: form-data; name=\"conversationId\"\r\n\r\n".data(using: .utf8)!)
+                body.append("\(conversationId)".data(using: .utf8)!)
+                body.append("\r\n".data(using: .utf8)!)
+            }
+            
+            // Add image data
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+            body.append(imageData)
+            body.append("\r\n".data(using: .utf8)!)
+            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            
+            // Create request
+            guard let url = URL(string: "\(AppConfig.apiBaseURL)/photos/process") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+            
+            // Send request
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    if let responseDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let success = responseDict["success"] as? Bool,
+                       success {
+                        print("✅ Photo processed successfully")
+                        
+                        // If this created a new conversation, update our local reference
+                        if conversation == nil,
+                           let newConversationId = responseDict["conversationId"] as? String {
+                            // The conversation will be loaded via the Firestore listener
+                            print("New conversation created: \(newConversationId)")
+                        }
+                        
+                        // Close camera mode and return to voice mode
+                        await MainActor.run {
+                            showingCameraMode = false
+                            capturedImage = nil
+                            isProcessingPhoto = false
+                        }
+                    } else {
+                        print("Photo processing failed")
+                        await MainActor.run {
+                            capturedImage = nil
+                            isProcessingPhoto = false
+                        }
+                    }
+                } else {
+                    print("Error processing photo: HTTP \(httpResponse.statusCode)")
+                    if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        print("Error details:", errorData)
+                    }
+                    await MainActor.run {
+                        capturedImage = nil
+                        isProcessingPhoto = false
+                    }
+                }
+            }
+        } catch {
+            print("Error uploading photo: \(error)")
+            await MainActor.run {
+                capturedImage = nil
+                isProcessingPhoto = false
             }
         }
     }
