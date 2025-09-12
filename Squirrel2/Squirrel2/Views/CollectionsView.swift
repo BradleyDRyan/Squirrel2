@@ -11,9 +11,6 @@ struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
     @State private var selectedCollection: Collection?
     @Namespace private var namespace
-    @Binding var isShowingDetail: Bool
-    @Binding var dismissProgress: CGFloat
-    @State private var dragOffset: CGFloat = 0
     
     var body: some View {
         NavigationStack {
@@ -45,21 +42,8 @@ struct CollectionsView: View {
                         GridItem(.flexible(), spacing: 16)
                     ], spacing: 16) {
                         ForEach(viewModel.collections) { collection in
-                            NavigationLink(destination: CollectionDetailView(
-                                collection: collection,
-                                dismissProgress: $dismissProgress
-                            )
+                            NavigationLink(destination: CollectionDetailView(collection: collection)
                                 .navigationTransition(.zoom(sourceID: collection.id, in: namespace))
-                                .onAppear {
-                                    isShowingDetail = true
-                                    dismissProgress = 0
-                                    print("🟡 CollectionDetailView appeared")
-                                }
-                                .onDisappear {
-                                    isShowingDetail = false
-                                    dismissProgress = 0
-                                    print("🟡 CollectionDetailView disappeared")
-                                }
                             ) {
                                 CollectionCard(collection: collection)
                                     .matchedTransitionSource(id: collection.id, in: namespace)

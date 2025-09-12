@@ -11,14 +11,10 @@ struct CollectionDetailView: View {
     @StateObject private var viewModel: CollectionDetailViewModel
     @EnvironmentObject var firebaseManager: FirebaseManager
     @State private var showingSettings = false
-    var dismissProgress: Binding<CGFloat>?
-    @State private var dragOffset: CGSize = .zero
-    @Environment(\.dismiss) private var dismiss
     
-    init(collection: Collection, dismissProgress: Binding<CGFloat>? = nil) {
+    init(collection: Collection) {
         self.collection = collection
         self._viewModel = StateObject(wrappedValue: CollectionDetailViewModel(collectionId: collection.id))
-        self.dismissProgress = dismissProgress
     }
     
     var body: some View {
@@ -78,20 +74,6 @@ struct CollectionDetailView: View {
             }
             .padding()
         }
-        .background(
-            GeometryReader { geometry in
-                Color.clear
-                    .onChange(of: geometry.frame(in: .global).minY) { _, newValue in
-                        // Track the view position during swipe-to-dismiss
-                        let screenHeight = UIScreen.main.bounds.height
-                        let progress = max(0, min(1, newValue / screenHeight))
-                        if progress > 0 {
-                            dismissProgress?.wrappedValue = progress
-                            print("🔴 DetailView position tracking - Y: \(newValue), progress: \(progress)")
-                        }
-                    }
-            }
-        )
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -122,8 +104,10 @@ struct EntryCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Display image if this is a photo entry
-            if entry.type == .photo, let imageUrl = entry.imageUrl, let url = URL(string: imageUrl) {
+            // Display image if this is a photo entry (check type or tags)
+            if (entry.type == .photo || entry.tags.contains("photo")), 
+               let imageUrl = entry.imageUrl, 
+               let url = URL(string: imageUrl) {
                 AsyncImage(url: url) { image in
                     image
                         .resizable()

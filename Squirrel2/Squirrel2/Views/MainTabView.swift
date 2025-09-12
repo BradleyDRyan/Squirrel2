@@ -11,9 +11,6 @@ struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showingChat = false
     @State private var showingCameraMode = false
-    @State private var isShowingCollectionDetail = false
-    @State private var tabBarOffset: CGFloat = 0
-    @State private var dismissProgress: CGFloat = 0
     
     var body: some View {
         ZStack {
@@ -25,7 +22,7 @@ struct MainTabView: View {
                 case 1:
                     PhotosView()
                 case 2:
-                    CollectionsView(isShowingDetail: $isShowingCollectionDetail, dismissProgress: $dismissProgress)
+                    CollectionsView()
                 default:
                     EmptyView()
                 }
@@ -55,36 +52,13 @@ struct MainTabView: View {
                         }
                     }
                     .padding(.trailing, 20)
-                    .offset(y: tabBarOffset - 100) // Move with tab bar (adjusted for padding)
+                    .offset(y: -100) // Position above tab bar
                 }
                 
                 // Custom tab bar
                 CustomTabBar(selection: $selectedTab)
-                    .offset(y: tabBarOffset)
             }
             .ignoresSafeArea(edges: .bottom)
-        }
-        .onChange(of: isShowingCollectionDetail) { _, showing in
-            if showing {
-                // Animate out when going to detail
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    tabBarOffset = 120
-                }
-            } else {
-                // Instantly reset when detail is fully dismissed
-                tabBarOffset = 0
-            }
-        }
-        .onChange(of: dismissProgress) { _, progress in
-            // Modulate tab bar position based on dismiss gesture progress
-            // progress: 0 = detail view fully shown, 1 = detail view dismissed
-            print("🟢 MainTabView - dismissProgress changed: \(progress), tabBarOffset: \(tabBarOffset)")
-            if dismissProgress > 0 {
-                // Start bringing tab bar back as user swipes down
-                let newOffset = modulate(progress, from: [0, 1], to: [120, 0])
-                tabBarOffset = newOffset
-                print("🟢 MainTabView - Modulated offset: \(newOffset)")
-            }
         }
         .sheet(isPresented: $showingChat) {
             ChatView(showingCameraMode: $showingCameraMode)
